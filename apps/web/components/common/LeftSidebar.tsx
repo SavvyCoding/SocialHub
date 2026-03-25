@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import { useSession, signOut } from "next-auth/react"
 import {
   Home, Search, Bell, MessageSquare, Bookmark,
-  BookOpen, Film, MapPin, Target, LogOut, Feather, Sun, Moon,
+  BookOpen, Film, MapPin, Target, LogOut, Feather, Sun, Moon, Library,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/common/UserAvatar"
@@ -41,6 +41,7 @@ export function LeftSidebar({ onCompose }: LeftSidebarProps) {
     { href: "/notifications", icon: Bell, label: "Notifications", badge: notifCount?.count },
     { href: "/messages", icon: MessageSquare, label: "Messages", badge: msgCount?.count },
     { href: "/bookmarks", icon: Bookmark, label: "Bookmarks" },
+    { href: "/collections", icon: Library, label: "Collections" },
   ]
 
   const showcaseItems = [

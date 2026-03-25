@@ -3,7 +3,7 @@
 import { useState, useRef, memo } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Heart, MessageCircle, Repeat2, MoreHorizontal, Trash2, Bookmark, BadgeCheck, Eye, Pin, Clock } from "lucide-react"
+import { Heart, MessageCircle, Repeat2, MoreHorizontal, Trash2, Bookmark, BadgeCheck, Eye, Pin, Clock, Library, Plus } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { trpc } from "@/lib/trpc/client"
 import { formatRelativeTime } from "@/lib/utils"
@@ -231,6 +231,7 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
   const [isBookmarked, setIsBookmarked] = useState(post.isBookmarked ?? false)
   const [showMenu, setShowMenu] = useState(false)
   const [bookmarkAnimating, setBookmarkAnimating] = useState(false)
+  const [showCollectionPicker, setShowCollectionPicker] = useState(false)
 
   const utils = trpc.useUtils()
 
@@ -288,6 +289,11 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
   const pinPost = trpc.post.togglePin.useMutation({
     onSuccess: () => utils.post.getByUser.invalidate(),
   })
+
+  const { data: myCollections } = trpc.collection.myCollections.useQuery(undefined, {
+    enabled: showCollectionPicker && !!session,
+  })
+  const addToCollection = trpc.collection.addPost.useMutation()
 
   const isOwner = session?.user?.id === post.author.id
 
@@ -440,6 +446,51 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
             onAnimationEnd={() => setBookmarkAnimating(false)}
           />
         </button>
+
+        {/* Save to Collection */}
+        {session && (
+          <div className="relative">
+            <button
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary active:scale-95"
+              onClick={() => setShowCollectionPicker((prev) => !prev)}
+              title="Save to collection"
+            >
+              <Library className="h-[18px] w-[18px]" />
+            </button>
+            {showCollectionPicker && (
+              <div className="absolute bottom-full right-0 mb-1 z-50 rounded-lg border bg-popover shadow-md min-w-[180px]">
+                <p className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Save to collection
+                </p>
+                {!myCollections?.length ? (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">No collections yet</p>
+                ) : (
+                  myCollections.map((col) => (
+                    <button
+                      key={col.id}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
+                      onClick={() => {
+                        addToCollection.mutate({ collectionId: col.id, postId: post.id })
+                        setShowCollectionPicker(false)
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                      <span className="truncate">{col.name}</span>
+                    </button>
+                  ))
+                )}
+                <div className="border-t" />
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-primary rounded-b-lg"
+                  onClick={() => { setShowCollectionPicker(false); window.location.href = "/collections" }}
+                >
+                  <Library className="h-3.5 w-3.5 flex-shrink-0" />
+                  Manage collections
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* View count */}
         {post.viewCount != null && post.viewCount > 0 && (

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { PostComposer } from "@/components/feed/PostComposer"
 import { FeedList } from "@/components/feed/FeedList"
-import { ExploreFeedList } from "@/components/feed/ExploreFeedList"
+import { ForYouFeedList } from "@/components/feed/ForYouFeedList"
 import { StoryRing } from "@/components/stories/StoryRing"
 import { cn } from "@/lib/utils"
 
@@ -51,7 +51,7 @@ export default function PostsPage() {
 
       {/* Feed */}
       <div className="pt-3 space-y-3">
-        {tab === "following" ? <FeedList /> : <ExploreFeedList />}
+        {tab === "following" ? <FeedList /> : <ForYouFeedList />}
       </div>
     </div>
   )

@@ -27,16 +27,19 @@ io.adapter(createAdapter(pubClient, subClient))
 // NextAuth JWT secret for validating socket connections and internal endpoints
 const AUTH_SECRET = process.env.AUTH_SECRET || ""
 
-// Subscribe to all notification channels via Redis pub/sub
-subscriber.psubscribe("notifications:*", (err) => {
+// Subscribe to notification and activity channels via Redis pub/sub
+subscriber.psubscribe("notifications:*", "activity:*", (err) => {
   if (err) logger.error({ err }, "Redis subscribe error")
-  else logger.info("Subscribed to notification channels")
+  else logger.info("Subscribed to notification and activity channels")
 })
 
 subscriber.on("pmessage", (_pattern, channel, message) => {
-  const userId = channel.split(":")[1]
-  if (userId) {
+  const [prefix, userId] = channel.split(":")
+  if (!userId) return
+  if (prefix === "notifications") {
     io.to(userId).emit("notification:new", JSON.parse(message))
+  } else if (prefix === "activity") {
+    io.to(userId).emit("activity:new", JSON.parse(message))
   }
 })
 

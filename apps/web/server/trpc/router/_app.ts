@@ -13,6 +13,7 @@ import { hashtagRouter } from "./hashtag"
 import { messageRouter } from "./message"
 import { blockRouter } from "./block"
 import { searchRouter } from "./search"
+import { collectionRouter } from "./collection"
 
 export const appRouter = router({
   post: postRouter,
@@ -29,6 +30,7 @@ export const appRouter = router({
   message: messageRouter,
   block: blockRouter,
   search: searchRouter,
+  collection: collectionRouter,
 })
 
 export type AppRouter = typeof appRouter

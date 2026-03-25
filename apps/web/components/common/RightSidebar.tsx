@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc/client"
 import { UserCard } from "@/components/social/UserCard"
 import { useSession } from "next-auth/react"
 import { cn } from "@/lib/utils"
+import { LiveActivityFeed } from "@/components/common/LiveActivityFeed"
 
 export function RightSidebar() {
   const { data: session } = useSession()
@@ -42,6 +43,9 @@ export function RightSidebar() {
 
   return (
     <aside className="hidden xl:block w-80 flex-shrink-0 sticky top-12 h-[calc(100vh-3rem)] overflow-y-auto py-4 px-3 space-y-4 scrollbar-none">
+      {/* Live Activity Feed */}
+      <LiveActivityFeed />
+
       {/* Trending */}
       {trending && trending.length > 0 && (
         <Card>

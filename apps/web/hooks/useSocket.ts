@@ -35,6 +35,10 @@ export function useSocket() {
         utils.notification.getCount.invalidate()
         utils.notification.getAll.invalidate()
       })
+
+      socket.on("activity:new", () => {
+        utils.post.getRecentActivity.invalidate()
+      })
     }
 
     connect()

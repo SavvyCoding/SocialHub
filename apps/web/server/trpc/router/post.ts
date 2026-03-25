@@ -14,6 +14,7 @@ import {
   authorSelect,
   countSelect,
 } from "@/server/services/social-graph.service"
+import { getRecommendedPosts } from "@/server/services/embedding.service"
 
 export const postRouter = router({
   // ─── Feed queries ────────────────────────────────────────────────────────────
@@ -661,5 +662,122 @@ export const postRouter = router({
       include: { author: { select: authorSelect }, _count: { select: countSelect } },
       orderBy: { scheduledAt: "asc" },
     })
+  }),
+
+  // ─── AI For You Feed ──────────────────────────────────────────────────────────
+
+  getForYouFeed: authedProcedure
+    .input(z.object({ limit: z.number().min(1).max(50).default(20) }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      await RATE_LIMITS.readFeed(userId)
+
+      const excludedIds = await getExcludedUserIds(ctx.db, ctx.redis, userId)
+
+      // Try embedding-based recommendations
+      const recommended = await getRecommendedPosts(ctx.db, userId, {
+        limit: input.limit,
+        excludePostIds: [],
+      }).catch(() => [])
+
+      const pollInclude = { options: { orderBy: { order: "asc" as const } }, votes: { where: { userId } } }
+
+      let posts
+      if (recommended.length > 0) {
+        const postIds = recommended.map((r) => r.entityId)
+        const rawPosts = await ctx.db.post.findMany({
+          where: { id: { in: postIds }, isPublished: true, authorId: { notIn: [userId, ...excludedIds] } },
+          include: { author: { select: authorSelect }, _count: { select: countSelect }, poll: { include: pollInclude } },
+        })
+        // Preserve similarity order
+        const orderMap = new Map(postIds.map((id, i) => [id, i]))
+        posts = rawPosts.sort((a, b) => (orderMap.get(a.id) ?? 999) - (orderMap.get(b.id) ?? 999))
+      } else {
+        // Fallback: trending public posts excluding self
+        posts = await ctx.db.post.findMany({
+          where: { visibility: "PUBLIC", parentPostId: null, isPublished: true, authorId: { notIn: [userId, ...excludedIds] } },
+          include: { author: { select: authorSelect }, _count: { select: countSelect }, poll: { include: pollInclude } },
+          orderBy: [{ likes: { _count: "desc" } }, { createdAt: "desc" }],
+          take: input.limit,
+        })
+      }
+
+      const interactions = await batchGetInteractions(ctx.db, userId, posts.map((p) => p.id))
+
+      return {
+        posts: posts.map((p) => ({
+          ...p,
+          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
+          parentPost: null,
+        })),
+      }
+    }),
+
+  // ─── Live Activity Feed ───────────────────────────────────────────────────────
+
+  getRecentActivity: authedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+
+    const followingIds = await getFollowingIds(ctx.db, ctx.redis, userId)
+    if (followingIds.length === 0) return []
+
+    // Recent posts by followed users
+    const posts = await ctx.db.post.findMany({
+      where: {
+        authorId: { in: followingIds },
+        createdAt: { gte: twoHoursAgo },
+        isPublished: true,
+        parentPostId: null,
+      },
+      include: { author: { select: authorSelect } },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+    })
+
+    // Recent likes by followed users on any post
+    const likes = await ctx.db.like.findMany({
+      where: {
+        userId: { in: followingIds },
+        postId: { not: null },
+        createdAt: { gte: twoHoursAgo },
+      },
+      include: {
+        user: { select: authorSelect },
+        post: { select: { id: true, content: true, author: { select: { username: true } } } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+    })
+
+    const activities = [
+      ...posts.map((p) => ({
+        id: `post-${p.id}`,
+        type: "post" as const,
+        actorName: p.author.name,
+        actorUsername: p.author.username,
+        actorAvatar: p.author.avatarUrl,
+        actorVerified: p.author.isVerified,
+        text: p.content?.slice(0, 80) ?? "",
+        postId: p.id,
+        createdAt: p.createdAt,
+      })),
+      ...likes
+        .filter((l) => l.post)
+        .map((l) => ({
+          id: `like-${l.id}`,
+          type: "like" as const,
+          actorName: l.user.name,
+          actorUsername: l.user.username,
+          actorAvatar: l.user.avatarUrl,
+          actorVerified: l.user.isVerified,
+          text: l.post?.content?.slice(0, 60) ?? "",
+          postId: l.postId ?? "",
+          createdAt: l.createdAt,
+        })),
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 20)
+
+    return activities
   }),
 })

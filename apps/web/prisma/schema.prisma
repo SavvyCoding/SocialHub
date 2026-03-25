@@ -72,6 +72,9 @@ model User {
   // Bookmarks
   bookmarks Bookmark[]
 
+  // Collections
+  collections Collection[]
+
   @@map("users")
 }
 
@@ -188,8 +191,9 @@ model Post {
   shares    Share[]
   hashtags  PostHashtag[]
   mentions  PostMention[]
-  bookmarks Bookmark[]
-  poll      Poll?
+  bookmarks       Bookmark[]
+  poll            Poll?
+  collectionItems CollectionItem[]
 
   @@index([authorId, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
@@ -749,4 +753,38 @@ model Embedding {
 enum EmbeddingEntityType {
   POST
   USER
+}
+
+// ─────────────────────────────────────────
+// COLLECTIONS
+// ─────────────────────────────────────────
+
+model Collection {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CollectionItem[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("collections")
+}
+
+model CollectionItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  postId       String
+  addedAt      DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  post       Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, postId])
+  @@index([collectionId, addedAt(sort: Desc)])
+  @@map("collection_items")
 }
