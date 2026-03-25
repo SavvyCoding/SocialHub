@@ -46,11 +46,6 @@ case "$ACTION" in
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart web socket worker
     ;;
 
-  logs)
-    SERVICE="${2:-}"
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs -f $SERVICE
-    ;;
-
   migrate)
     echo "==> Running database migrations..."
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up migrate
@@ -59,17 +54,27 @@ case "$ACTION" in
   seed)
     echo "==> Seeding database..."
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm \
-      -e DATABASE_URL="$(grep DATABASE_URL "$ENV_FILE" | head -1 | cut -d= -f2-)" \
-      -e DIRECT_DATABASE_URL="$(grep DIRECT_DATABASE_URL "$ENV_FILE" | head -1 | cut -d= -f2-)" \
-      --entrypoint sh worker -c "cd /app/apps/web && prisma db seed"
+      --entrypoint sh worker -c "prisma db seed"
+    ;;
+
+  test)
+    echo "==> Running unit tests in worker container..."
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" run --rm \
+      --entrypoint sh worker -c "cd /app/apps/web && node_modules/.bin/vitest run"
     ;;
 
   status)
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
     ;;
 
+  logs)
+    SERVICE="${2:-}"
+    # shellcheck disable=SC2086
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs -f $SERVICE
+    ;;
+
   *)
-    echo "Usage: $0 {build|up|down|restart|logs [service]|migrate|seed|status}"
+    echo "Usage: $0 {build|up|down|restart|logs [service]|migrate|seed|test|status}"
     exit 1
     ;;
 esac
