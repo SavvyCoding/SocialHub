@@ -50,6 +50,14 @@ export default function ConversationPage({ params }: { params: Promise<{ convers
 
   const messages = data?.messages ?? []
 
+  // Index of the last outgoing message that has been read by the recipient
+  const lastReadOutgoingIdx = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].senderId === session?.user?.id && messages[i].isRead) return i
+    }
+    return -1
+  })()
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] rounded-lg border bg-card overflow-hidden">
       {/* Header */}
@@ -84,7 +92,7 @@ export default function ConversationPage({ params }: { params: Promise<{ convers
             <p className="text-sm text-muted-foreground">No messages yet. Say hi!</p>
           </div>
         ) : (
-          messages.map((msg) => {
+          messages.map((msg, idx) => {
             const isMe = msg.senderId === session?.user?.id
             return (
               <div key={msg.id} className={cn("flex gap-2", isMe ? "flex-row-reverse" : "flex-row")}>
@@ -108,6 +116,9 @@ export default function ConversationPage({ params }: { params: Promise<{ convers
                   <span className="text-[10px] text-muted-foreground px-1">
                     {formatRelativeTime(msg.createdAt)}
                   </span>
+                  {isMe && idx === lastReadOutgoingIdx && (
+                    <span className="text-[10px] text-primary px-1">Seen</span>
+                  )}
                 </div>
               </div>
             )

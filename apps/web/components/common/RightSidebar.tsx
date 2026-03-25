@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import Image from "next/image"
-import { Hash, TrendingUp, BookOpen, Film, Target, Flame } from "lucide-react"
+import { useState } from "react"
+import { Hash, TrendingUp, BookOpen, Film, Target, Flame, VolumeX, X, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { UserCard } from "@/components/social/UserCard"
 import { useSession } from "next-auth/react"
@@ -13,6 +14,7 @@ export function RightSidebar() {
   const { data: session } = useSession()
   const username = session?.user?.username ?? ""
   const userId = session?.user?.id
+  const [newKeyword, setNewKeyword] = useState("")
 
   const { data: trending } = trpc.hashtag.getTrending.useQuery(
     { limit: 5 },
@@ -33,6 +35,11 @@ export function RightSidebar() {
     { userId: userId! },
     { enabled: !!userId, staleTime: 5 * 60_000 }
   )
+  const { data: mutedKeywords, refetch: refetchMuted } = trpc.user.getMutedKeywords.useQuery(undefined, {
+    enabled: !!session,
+  })
+  const addMuted = trpc.user.addMutedKeyword.useMutation({ onSuccess: () => { refetchMuted(); setNewKeyword("") } })
+  const removeMuted = trpc.user.removeMutedKeyword.useMutation({ onSuccess: () => refetchMuted() })
 
   if (!session) return null
 
@@ -82,6 +89,55 @@ export function RightSidebar() {
           </div>
         </Card>
       )}
+
+      {/* Muted Keywords */}
+      <Card>
+        <div className="flex items-center gap-2 mb-3">
+          <VolumeX className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Muted Keywords</h3>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            const kw = newKeyword.trim()
+            if (kw) addMuted.mutate({ keyword: kw })
+          }}
+          className="flex items-center gap-1.5 mb-2"
+        >
+          <input
+            type="text"
+            value={newKeyword}
+            onChange={(e) => setNewKeyword(e.target.value)}
+            placeholder="Add keyword..."
+            maxLength={100}
+            className="flex-1 rounded-lg border bg-background px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
+          />
+          <button
+            type="submit"
+            disabled={!newKeyword.trim() || addMuted.isPending}
+            className="rounded-lg bg-primary text-primary-foreground px-2 py-1 text-xs disabled:opacity-50"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </form>
+        {mutedKeywords && mutedKeywords.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {mutedKeywords.map((kw) => (
+              <span key={kw.id} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs">
+                {kw.keyword}
+                <button
+                  onClick={() => removeMuted.mutate({ id: kw.id })}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No muted keywords. Posts containing muted words are hidden from your feed.</p>
+        )}
+      </Card>
 
       {/* Currently Reading */}
       {readingEntries.length > 0 && (

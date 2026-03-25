@@ -75,6 +75,9 @@ model User {
   // Collections
   collections Collection[]
 
+  // Muted keywords
+  mutedKeywords MutedKeyword[]
+
   @@map("users")
 }
 
@@ -183,14 +186,16 @@ model Post {
   parentPostId   String?
   originalPostId String?
 
-  author   User      @relation(fields: [authorId], references: [id])
-  parent   Post?     @relation("PostReplies", fields: [parentPostId], references: [id])
-  replies  Post[]    @relation("PostReplies")
-  likes     Like[]
-  comments  Comment[]
-  shares    Share[]
-  hashtags  PostHashtag[]
-  mentions  PostMention[]
+  author       User      @relation(fields: [authorId], references: [id])
+  parent       Post?     @relation("PostReplies", fields: [parentPostId], references: [id])
+  replies      Post[]    @relation("PostReplies")
+  originalPost Post?     @relation("PostQuotes", fields: [originalPostId], references: [id])
+  quotedBy     Post[]    @relation("PostQuotes")
+  likes           Like[]
+  comments        Comment[]
+  shares          Share[]
+  hashtags        PostHashtag[]
+  mentions        PostMention[]
   bookmarks       Bookmark[]
   poll            Poll?
   collectionItems CollectionItem[]
@@ -753,6 +758,23 @@ model Embedding {
 enum EmbeddingEntityType {
   POST
   USER
+}
+
+// ─────────────────────────────────────────
+// MUTED KEYWORDS
+// ─────────────────────────────────────────
+
+model MutedKeyword {
+  id        String   @id @default(cuid())
+  userId    String
+  keyword   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, keyword])
+  @@index([userId])
+  @@map("muted_keywords")
 }
 
 // ─────────────────────────────────────────

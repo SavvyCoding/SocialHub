@@ -170,6 +170,61 @@ export const userRouter = router({
       })
     }),
 
+  getMutedKeywords: authedProcedure.query(async ({ ctx }) => {
+    return ctx.db.mutedKeyword.findMany({
+      where: { userId: ctx.session.user.id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, keyword: true },
+    })
+  }),
+
+  addMutedKeyword: authedProcedure
+    .input(z.object({ keyword: z.string().min(1).max(100).trim() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.mutedKeyword.create({
+        data: { userId: ctx.session.user.id, keyword: input.keyword.toLowerCase() },
+        select: { id: true, keyword: true },
+      })
+    }),
+
+  removeMutedKeyword: authedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.mutedKeyword.deleteMany({
+        where: { id: input.id, userId: ctx.session.user.id },
+      })
+      return { success: true }
+    }),
+
+  getMutualFollowers: authedProcedure
+    .input(z.object({ targetUserId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      if (userId === input.targetUserId) return []
+
+      // Users that both the viewer and the target follow
+      const viewerFollowing = await ctx.db.follow.findMany({
+        where: { followerId: userId },
+        select: { followingId: true },
+      })
+      const viewerFollowingIds = viewerFollowing.map((f) => f.followingId)
+
+      const targetFollowing = await ctx.db.follow.findMany({
+        where: { followerId: input.targetUserId },
+        select: { followingId: true },
+      })
+      const targetFollowingIds = new Set(targetFollowing.map((f) => f.followingId))
+
+      const mutualIds = viewerFollowingIds.filter((id) => targetFollowingIds.has(id))
+      if (mutualIds.length === 0) return []
+
+      return ctx.db.user.findMany({
+        where: { id: { in: mutualIds } },
+        select: { id: true, name: true, username: true, avatarUrl: true, isVerified: true },
+        take: 5,
+      })
+    }),
+
   getActivityHeatmap: publicProcedure
     .input(z.object({ userId: z.string(), days: z.number().default(365) }))
     .query(async ({ ctx, input }) => {

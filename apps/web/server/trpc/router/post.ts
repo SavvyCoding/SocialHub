@@ -14,6 +14,17 @@ import {
   authorSelect,
   countSelect,
 } from "@/server/services/social-graph.service"
+
+const quotedPostInclude = {
+  originalPost: {
+    select: {
+      id: true,
+      content: true,
+      mediaUrls: true,
+      author: { select: authorSelect },
+    },
+  },
+}
 import { getRecommendedPosts } from "@/server/services/embedding.service"
 
 export const postRouter = router({
@@ -24,21 +35,28 @@ export const postRouter = router({
     const userId = ctx.session.user.id
     await RATE_LIMITS.readFeed(userId)
 
-    const [followingIds, excludedIds] = await Promise.all([
+    const [followingIds, excludedIds, mutedKeywords] = await Promise.all([
       getFollowingIds(ctx.db, ctx.redis, userId),
       getExcludedUserIds(ctx.db, ctx.redis, userId),
+      ctx.db.mutedKeyword.findMany({ where: { userId }, select: { keyword: true } }),
     ])
+
+    const keywordFilter = mutedKeywords.length > 0
+      ? { NOT: { OR: mutedKeywords.map(({ keyword }) => ({ content: { contains: keyword, mode: "insensitive" as const } })) } }
+      : {}
 
     const posts = await ctx.db.post.findMany({
       where: {
         authorId: { in: [userId, ...followingIds], notIn: excludedIds },
         parentPostId: null,
         isPublished: true,
+        ...keywordFilter,
       },
       include: {
         author: { select: authorSelect },
         _count: { select: countSelect },
         poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
+        ...quotedPostInclude,
       },
       orderBy: { createdAt: "desc" },
       take: limit + 1,
@@ -73,6 +91,7 @@ export const postRouter = router({
         author: { select: authorSelect },
         _count: { select: countSelect },
         poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
+        ...quotedPostInclude,
       },
       orderBy: [{ likes: { _count: "desc" } }, { createdAt: "desc" }],
       take: limit + 1,
@@ -120,6 +139,7 @@ export const postRouter = router({
           author: { select: authorSelect },
           _count: { select: countSelect },
           poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
+          ...quotedPostInclude,
         },
         orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
         take: input.limit + 1,
@@ -267,6 +287,7 @@ export const postRouter = router({
         visibility: input.visibility,
         isPublished: !isScheduled,
         scheduledAt: input.scheduledAt ?? null,
+        originalPostId: input.quotedPostId ?? null,
         hashtags: hashtags.length > 0
           ? {
               create: hashtags.map((name) => ({
@@ -311,6 +332,49 @@ export const postRouter = router({
 
     return { ...post, isLiked: false, isShared: false, isBookmarked: false, parentPost: null }
   }),
+
+  // ─── Thread creation ──────────────────────────────────────────────────────────
+
+  createThread: authedProcedure
+    .input(z.object({
+      posts: z.array(z.object({
+        content: z.string().min(1).max(2000).optional(),
+        mediaUrls: z.array(z.string().url()).max(4).optional(),
+      })).min(2).max(10),
+      visibility: z.enum(["PUBLIC", "FOLLOWERS", "PRIVATE"]).default("PUBLIC"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      await RATE_LIMITS.createPost(userId)
+
+      let previousPostId: string | null = null
+      const createdIds: string[] = []
+
+      for (const part of input.posts) {
+        if (!part.content?.trim() && !part.mediaUrls?.length) continue
+        const hashtags = part.content ? extractHashtags(part.content) : []
+        const post = await ctx.db.post.create({
+          data: {
+            authorId: userId,
+            content: part.content ?? null,
+            mediaUrls: part.mediaUrls ?? [],
+            visibility: input.visibility,
+            parentPostId: previousPostId,
+            hashtags: hashtags.length > 0
+              ? { create: hashtags.map((name) => ({ hashtag: { connectOrCreate: { where: { name }, create: { name } } } })) }
+              : undefined,
+          },
+        })
+        if (!previousPostId) {
+          // emit created event only for the root post
+          eventBus.emit("post.created", { postId: post.id, authorId: userId, mentionedUserIds: [] })
+        }
+        previousPostId = post.id
+        createdIds.push(post.id)
+      }
+
+      return { count: createdIds.length, rootPostId: createdIds[0] ?? null }
+    }),
 
   delete: authedProcedure
     .input(z.object({ id: z.string() }))
@@ -681,13 +745,14 @@ export const postRouter = router({
       }).catch(() => [])
 
       const pollInclude = { options: { orderBy: { order: "asc" as const } }, votes: { where: { userId } } }
+      const feedInclude = { author: { select: authorSelect }, _count: { select: countSelect }, poll: { include: pollInclude }, ...quotedPostInclude }
 
       let posts
       if (recommended.length > 0) {
         const postIds = recommended.map((r) => r.entityId)
         const rawPosts = await ctx.db.post.findMany({
           where: { id: { in: postIds }, isPublished: true, authorId: { notIn: [userId, ...excludedIds] } },
-          include: { author: { select: authorSelect }, _count: { select: countSelect }, poll: { include: pollInclude } },
+          include: feedInclude,
         })
         // Preserve similarity order
         const orderMap = new Map(postIds.map((id, i) => [id, i]))
@@ -696,7 +761,7 @@ export const postRouter = router({
         // Fallback: trending public posts excluding self
         posts = await ctx.db.post.findMany({
           where: { visibility: "PUBLIC", parentPostId: null, isPublished: true, authorId: { notIn: [userId, ...excludedIds] } },
-          include: { author: { select: authorSelect }, _count: { select: countSelect }, poll: { include: pollInclude } },
+          include: feedInclude,
           orderBy: [{ likes: { _count: "desc" } }, { createdAt: "desc" }],
           take: input.limit,
         })

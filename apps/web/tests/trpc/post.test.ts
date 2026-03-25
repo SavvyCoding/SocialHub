@@ -110,6 +110,9 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
     pollOption: {
       update: vi.fn().mockResolvedValue({}),
     },
+    mutedKeyword: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     user: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn().mockImplementation((ops: unknown[]) => Promise.all(ops)),
   } as unknown as Context["db"]
@@ -486,5 +489,103 @@ describe("postRouter.addComment", () => {
     await expect(
       createCaller(makeCtx(null)).addComment({ postId: "post-1", content: "Hi" })
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+// ─── createThread ─────────────────────────────────────────────────────────────
+
+describe("postRouter.createThread", () => {
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(
+      createCaller(makeCtx(null)).createThread({
+        posts: [{ content: "Part 1" }, { content: "Part 2" }],
+      })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("creates a chain of posts and returns count + rootPostId", async () => {
+    const ctx = makeCtx()
+    const post1 = mockPost({ id: "thread-1", parentPostId: null })
+    const post2 = mockPost({ id: "thread-2", parentPostId: "thread-1" })
+    ;(ctx.db.post.create as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(post1)
+      .mockResolvedValueOnce(post2)
+
+    const result = await createCaller(ctx).createThread({
+      posts: [{ content: "First post" }, { content: "Second post" }],
+    })
+
+    expect(result.count).toBe(2)
+    expect(result.rootPostId).toBe("thread-1")
+    expect(ctx.db.post.create).toHaveBeenCalledTimes(2)
+  })
+
+  it("skips empty parts and only creates non-empty posts", async () => {
+    const ctx = makeCtx()
+    const post1 = mockPost({ id: "thread-1" })
+    const post2 = mockPost({ id: "thread-2" })
+    ;(ctx.db.post.create as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(post1)
+      .mockResolvedValueOnce(post2)
+
+    const result = await createCaller(ctx).createThread({
+      posts: [{ content: "First" }, { content: "   " }, { content: "Third" }],
+    })
+
+    // The blank middle post should be skipped
+    expect(result.count).toBe(2)
+  })
+})
+
+// ─── create (quote post) ──────────────────────────────────────────────────────
+
+describe("postRouter.create with quotedPostId", () => {
+  it("sets originalPostId when quotedPostId is provided", async () => {
+    const ctx = makeCtx()
+    const created = mockPost({ originalPostId: "original-1" })
+    ;(ctx.db.post.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+
+    await createCaller(ctx).create({ content: "Quote comment", quotedPostId: "original-1" })
+
+    expect(ctx.db.post.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ originalPostId: "original-1" }),
+      })
+    )
+  })
+})
+
+// ─── getFeed muted keywords ───────────────────────────────────────────────────
+
+describe("postRouter.getFeed muted keyword filtering", () => {
+  it("passes muted keywords filter when user has muted words", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.mutedKeyword.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { keyword: "spam" },
+    ])
+
+    await createCaller(ctx).getFeed({})
+
+    expect(ctx.db.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          NOT: expect.objectContaining({
+            OR: expect.arrayContaining([
+              expect.objectContaining({ content: expect.objectContaining({ contains: "spam" }) }),
+            ]),
+          }),
+        }),
+      })
+    )
+  })
+
+  it("does not add keyword filter when user has no muted keywords", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.mutedKeyword.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([])
+
+    await createCaller(ctx).getFeed({})
+
+    const callArgs = (ctx.db.post.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(callArgs.where).not.toHaveProperty("NOT")
   })
 })

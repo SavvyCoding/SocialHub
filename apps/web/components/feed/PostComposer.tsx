@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { useSession } from "next-auth/react"
-import { ImagePlus, X, Loader2, Globe, Users, Lock, BarChart3, Clock, Plus, Minus } from "lucide-react"
+import { ImagePlus, X, Loader2, Globe, Users, Lock, BarChart3, Clock, Plus, Minus, Layers } from "lucide-react"
 import Image from "next/image"
 import { trpc } from "@/lib/trpc/client"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,10 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduledAt, setScheduledAt] = useState("")
 
+  // Thread mode state
+  const [threadMode, setThreadMode] = useState(false)
+  const [threadPosts, setThreadPosts] = useState<string[]>([""])
+
   // @mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionRange, setMentionRange] = useState<{ start: number; end: number } | null>(null)
@@ -68,6 +72,20 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
     },
     onError: (err) => {
       setPostError(err.message ?? "Failed to post. Please try again.")
+    },
+  })
+
+  const createThread = trpc.post.createThread.useMutation({
+    onSuccess: () => {
+      setThreadPosts([""])
+      setThreadMode(false)
+      setContent("")
+      setPostError(null)
+      utils.post.getFeed.invalidate()
+      onPostCreated?.()
+    },
+    onError: (err) => {
+      setPostError(err.message ?? "Failed to post thread. Please try again.")
     },
   })
 
@@ -171,6 +189,13 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
   }
 
   const handleSubmit = useCallback(() => {
+    if (threadMode) {
+      const posts = [content, ...threadPosts].map((t) => ({ content: t.trim() || undefined })).filter((p) => p.content)
+      if (posts.length < 2) return
+      createThread.mutate({ posts, visibility })
+      return
+    }
+
     const poll = showPoll && pollQuestion.trim() && pollOptions.filter(Boolean).length >= 2
       ? { question: pollQuestion.trim(), options: pollOptions.filter(Boolean) }
       : undefined
@@ -186,7 +211,7 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
       poll,
       scheduledAt: schedDate,
     })
-  }, [content, mediaUrls, visibility, showPoll, pollQuestion, pollOptions, showSchedule, scheduledAt, createPost])
+  }, [threadMode, threadPosts, content, mediaUrls, visibility, showPoll, pollQuestion, pollOptions, showSchedule, scheduledAt, createPost, createThread])
 
   const charCount = content.length
   const isOverLimit = charCount > 2000
@@ -195,6 +220,8 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
   const pollValid = !showPoll || (pollQuestion.trim().length > 0 && pollOptions.filter(Boolean).length >= 2)
   const hasContent = content.trim().length > 0 || mediaUrls.length > 0 || (showPoll && pollValid && pollQuestion.trim())
   const isScheduled = showSchedule && scheduledAt
+  const threadValid = threadMode && [content, ...threadPosts].filter((t) => t.trim()).length >= 2
+  const isPending = createPost.isPending || createThread.isPending
 
   if (!session) return null
 
@@ -322,6 +349,52 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
             </div>
           )}
 
+          {/* Thread posts */}
+          {threadMode && (
+            <div className="space-y-0">
+              {threadPosts.map((post, i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="w-px flex-1 bg-border" />
+                    <Avatar className="h-7 w-7 shrink-0 my-1">
+                      <AvatarImage src={session.user?.image ?? ""} alt="" />
+                      <AvatarFallback className="text-[10px]">{session.user?.name?.[0]?.toUpperCase() ?? "U"}</AvatarFallback>
+                    </Avatar>
+                    {i < threadPosts.length - 1 && <div className="w-px flex-1 bg-border" />}
+                  </div>
+                  <div className="flex-1 pb-2">
+                    <Textarea
+                      placeholder={`Continue thread...`}
+                      value={post}
+                      onChange={(e) => {
+                        const next = [...threadPosts]
+                        next[i] = e.target.value
+                        setThreadPosts(next)
+                      }}
+                      className="border-0 p-0 focus-visible:ring-0 text-base resize-none min-h-[60px]"
+                    />
+                    {threadPosts.length > 1 && (
+                      <button
+                        onClick={() => setThreadPosts((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {threadPosts.length < 9 && (
+                <button
+                  onClick={() => setThreadPosts((prev) => [...prev, ""])}
+                  className="flex items-center gap-1 text-xs text-primary hover:underline ml-10"
+                >
+                  <Plus className="h-3 w-3" /> Add to thread
+                </button>
+              )}
+            </div>
+          )}
+
           {postError && <p className="text-xs text-destructive">{postError}</p>}
 
           <div className="flex items-center justify-between border-t pt-3">
@@ -372,6 +445,18 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
                 <Clock className="h-4 w-4" />
               </Button>
 
+              {/* Thread toggle */}
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => { setThreadMode((p) => !p); setThreadPosts([""]) }}
+                className={threadMode ? "text-primary" : "text-muted-foreground hover:text-primary"}
+                title="Create thread"
+              >
+                <Layers className="h-4 w-4" />
+              </Button>
+
               {/* Visibility picker */}
               <div className="relative">
                 <Button
@@ -414,15 +499,15 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
                 size="sm"
                 onClick={handleSubmit}
                 disabled={
-                  createPost.isPending ||
+                  isPending ||
                   isOverLimit ||
-                  !hasContent ||
-                  !pollValid ||
-                  (showSchedule && !scheduledAt)
+                  (threadMode ? !threadValid : (!hasContent || !pollValid || (showSchedule && !scheduledAt)))
                 }
               >
-                {createPost.isPending ? (
+                {isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : threadMode ? (
+                  "Post Thread"
                 ) : isScheduled ? (
                   "Schedule"
                 ) : (

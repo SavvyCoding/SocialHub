@@ -71,6 +71,10 @@ export function ProfileClient({ username }: { username: string }) {
   const muteMutation = trpc.block.mute.useMutation({ onSuccess: () => refetchBlockStatus() })
   const unmuteMutation = trpc.block.unmute.useMutation({ onSuccess: () => refetchBlockStatus() })
 
+  const { data: mutualFollowers } = trpc.user.getMutualFollowers.useQuery(
+    session && user && !isCurrentUser ? { targetUserId: user.id } : skipToken
+  )
+
   const followers = followersData?.pages?.flatMap((p) => p.followers ?? []) ?? undefined
   const following = followingData?.pages?.flatMap((p) => p.following ?? []) ?? undefined
   const posts = postsData?.pages.flatMap((p) => p.posts) ?? []
@@ -262,6 +266,32 @@ export function ProfileClient({ username }: { username: string }) {
         {tab === "overview" && (
           <div className="space-y-4">
             <ActivityHeatmap userId={user.id} />
+
+            {/* Mutual followers — only shown to viewers who are not the profile owner */}
+            {!isCurrentUser && mutualFollowers && mutualFollowers.length > 0 && (
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Followed by people you follow</h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {mutualFollowers.map((u) => (
+                    <Link
+                      key={u.id}
+                      href={`/profile/${u.username}`}
+                      className="flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs hover:bg-accent transition-colors"
+                    >
+                      {u.avatarUrl && (
+                        <Image src={u.avatarUrl} alt={u.name} width={16} height={16} className="rounded-full object-cover" />
+                      )}
+                      <span className="font-medium">{u.name}</span>
+                      {u.isVerified && <BadgeCheck className="h-3 w-3 text-primary" />}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <ExperienceSection userId={user.id} />
             <EducationSection userId={user.id} />
             <SkillsSection userId={user.id} />

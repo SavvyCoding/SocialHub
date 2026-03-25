@@ -15,6 +15,7 @@ export const createPostSchema = z.object({
   visibility: z.enum(["PUBLIC", "FOLLOWERS", "CONNECTIONS", "PRIVATE"]).default("PUBLIC"),
   poll: pollSchema.optional(),
   scheduledAt: z.date().optional(),
+  quotedPostId: z.string().optional(),
 }).refine(
   (data) =>
     (data.content && data.content.trim().length > 0) ||

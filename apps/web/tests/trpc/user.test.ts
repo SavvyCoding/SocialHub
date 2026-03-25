@@ -26,6 +26,11 @@ function makeCtx(sessionUserId?: string): Context {
     follow: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    mutedKeyword: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
   } as unknown as Context["db"]
 
   return {
@@ -205,5 +210,117 @@ describe("userRouter.updateProfile", () => {
 
     const result = await createCaller(ctx).updateProfile({ name: "New Name" })
     expect(result.name).toBe("New Name")
+  })
+})
+
+// ─── getMutedKeywords ─────────────────────────────────────────────────────────
+
+describe("userRouter.getMutedKeywords", () => {
+  it("throws UNAUTHORIZED when not logged in", async () => {
+    await expect(createCaller(makeCtx()).getMutedKeywords()).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("returns list of muted keywords for authenticated user", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.mutedKeyword.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "kw-1", keyword: "spam" },
+      { id: "kw-2", keyword: "ads" },
+    ])
+
+    const result = await createCaller(ctx).getMutedKeywords()
+    expect(result).toHaveLength(2)
+    expect(result[0].keyword).toBe("spam")
+  })
+
+  it("returns empty array when no keywords are muted", async () => {
+    const ctx = makeCtx("user-1")
+    const result = await createCaller(ctx).getMutedKeywords()
+    expect(result).toEqual([])
+  })
+})
+
+// ─── addMutedKeyword ──────────────────────────────────────────────────────────
+
+describe("userRouter.addMutedKeyword", () => {
+  it("throws UNAUTHORIZED when not logged in", async () => {
+    await expect(createCaller(makeCtx()).addMutedKeyword({ keyword: "spam" })).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("creates a muted keyword lowercased", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.mutedKeyword.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "kw-1", keyword: "spam" })
+
+    const result = await createCaller(ctx).addMutedKeyword({ keyword: "SPAM" })
+    expect(ctx.db.mutedKeyword.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ keyword: "spam", userId: "user-1" }),
+      })
+    )
+    expect(result.keyword).toBe("spam")
+  })
+})
+
+// ─── removeMutedKeyword ───────────────────────────────────────────────────────
+
+describe("userRouter.removeMutedKeyword", () => {
+  it("throws UNAUTHORIZED when not logged in", async () => {
+    await expect(createCaller(makeCtx()).removeMutedKeyword({ id: "kw-1" })).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("deletes the keyword and returns success", async () => {
+    const ctx = makeCtx("user-1")
+    const result = await createCaller(ctx).removeMutedKeyword({ id: "kw-1" })
+    expect(ctx.db.mutedKeyword.deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: "kw-1", userId: "user-1" }) })
+    )
+    expect(result.success).toBe(true)
+  })
+})
+
+// ─── getMutualFollowers ───────────────────────────────────────────────────────
+
+describe("userRouter.getMutualFollowers", () => {
+  it("throws UNAUTHORIZED when not logged in", async () => {
+    await expect(
+      createCaller(makeCtx()).getMutualFollowers({ targetUserId: "user-2" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("returns empty array when viewing own profile", async () => {
+    const ctx = makeCtx("user-1")
+    const result = await createCaller(ctx).getMutualFollowers({ targetUserId: "user-1" })
+    expect(result).toEqual([])
+    expect(ctx.db.follow.findMany).not.toHaveBeenCalled()
+  })
+
+  it("returns users both viewer and target follow", async () => {
+    const ctx = makeCtx("user-1")
+    // Viewer follows user-3, user-4
+    ;(ctx.db.follow.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ followingId: "user-3" }, { followingId: "user-4" }])
+      // Target follows user-4, user-5
+      .mockResolvedValueOnce([{ followingId: "user-4" }, { followingId: "user-5" }])
+
+    ;(ctx.db.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "user-4", name: "Mutual", username: "mutual", avatarUrl: null, isVerified: false },
+    ])
+
+    const result = await createCaller(ctx).getMutualFollowers({ targetUserId: "user-2" })
+    expect(result).toHaveLength(1)
+    expect(result[0].username).toBe("mutual")
+    expect(ctx.db.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ["user-4"] } }) })
+    )
+  })
+
+  it("returns empty array when there are no mutual follows", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.follow.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ followingId: "user-3" }])
+      .mockResolvedValueOnce([{ followingId: "user-5" }])
+
+    const result = await createCaller(ctx).getMutualFollowers({ targetUserId: "user-2" })
+    expect(result).toEqual([])
+    expect(ctx.db.user.findMany).not.toHaveBeenCalled()
   })
 })

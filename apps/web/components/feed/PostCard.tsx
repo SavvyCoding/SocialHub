@@ -3,11 +3,13 @@
 import { useState, useRef, memo } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Heart, MessageCircle, Repeat2, MoreHorizontal, Trash2, Bookmark, BadgeCheck, Eye, Pin, Clock, Library, Plus } from "lucide-react"
+import { Heart, MessageCircle, Repeat2, MoreHorizontal, Trash2, Bookmark, BadgeCheck, Eye, Pin, Clock, Library, Plus, Quote } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { trpc } from "@/lib/trpc/client"
 import { formatRelativeTime } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/common/UserAvatar"
 import { cn } from "@/lib/utils"
 
@@ -49,6 +51,13 @@ interface Poll {
   votes?: { optionId: string }[]
 }
 
+interface QuotedPost {
+  id: string
+  content: string | null
+  mediaUrls: string[]
+  author: PostAuthor
+}
+
 interface Post {
   id: string
   content: string | null
@@ -65,6 +74,7 @@ interface Post {
   scheduledAt?: Date | string | null
   isPublished?: boolean
   poll?: Poll | null
+  originalPost?: QuotedPost | null
   parentPost: {
     id: string
     author: { id: string; name: string; username: string }
@@ -219,6 +229,34 @@ function ReactionButton({
   )
 }
 
+// ─── Quoted post mini-card ────────────────────────────────────────────────────
+
+function QuotedPostCard({ post }: { post: QuotedPost }) {
+  return (
+    <Link href={`/post/${post.id}`}>
+      <div className="rounded-xl border bg-muted/40 p-3 hover:bg-accent/50 transition-colors space-y-1">
+        <div className="flex items-center gap-1.5">
+          <Avatar className="h-5 w-5">
+            <AvatarImage src={post.author.avatarUrl ?? ""} alt={post.author.name} />
+            <AvatarFallback className="text-[9px]">{post.author.name[0]?.toUpperCase()}</AvatarFallback>
+          </Avatar>
+          <span className="text-xs font-semibold">{post.author.name}</span>
+          {post.author.isVerified && <BadgeCheck className="h-3 w-3 text-primary flex-shrink-0" />}
+          <span className="text-xs text-muted-foreground">@{post.author.username}</span>
+        </div>
+        {post.content && (
+          <p className="text-[13px] text-muted-foreground line-clamp-2">{post.content}</p>
+        )}
+        {post.mediaUrls.length > 0 && (
+          <div className="relative h-20 rounded-lg overflow-hidden bg-muted">
+            <Image src={post.mediaUrls[0]} alt="quoted media" fill className="object-cover" sizes="400px" />
+          </div>
+        )}
+      </div>
+    </Link>
+  )
+}
+
 // ─── PostCard ─────────────────────────────────────────────────────────────────
 
 export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
@@ -232,6 +270,8 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
   const [showMenu, setShowMenu] = useState(false)
   const [bookmarkAnimating, setBookmarkAnimating] = useState(false)
   const [showCollectionPicker, setShowCollectionPicker] = useState(false)
+  const [showQuoteDialog, setShowQuoteDialog] = useState(false)
+  const [quoteText, setQuoteText] = useState("")
 
   const utils = trpc.useUtils()
 
@@ -294,6 +334,14 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
     enabled: showCollectionPicker && !!session,
   })
   const addToCollection = trpc.collection.addPost.useMutation()
+
+  const quotePost = trpc.post.create.useMutation({
+    onSuccess: () => {
+      setShowQuoteDialog(false)
+      setQuoteText("")
+      utils.post.getFeed.invalidate()
+    },
+  })
 
   const isOwner = session?.user?.id === post.author.id
 
@@ -395,6 +443,9 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
         </div>
       )}
 
+      {/* Quoted post */}
+      {post.originalPost && <QuotedPostCard post={post.originalPost} />}
+
       {/* Poll */}
       {post.poll && <PollDisplay poll={post.poll} postId={post.id} />}
 
@@ -430,6 +481,17 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
           <Repeat2 className={cn("h-[18px] w-[18px]", isShared && "fill-current")} />
           <span className="text-xs tabular-nums">{shareCount > 0 ? shareCount : ""}</span>
         </button>
+
+        {/* Quote */}
+        {session && (
+          <button
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary active:scale-95"
+            onClick={() => setShowQuoteDialog(true)}
+            title="Quote post"
+          >
+            <Quote className="h-[18px] w-[18px]" />
+          </button>
+        )}
 
         {/* Bookmark */}
         <button
@@ -500,6 +562,34 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
           </span>
         )}
       </div>
+      {/* Quote dialog */}
+      <Dialog open={showQuoteDialog} onOpenChange={setShowQuoteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Quote post</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <Textarea
+              placeholder="Add your thoughts..."
+              value={quoteText}
+              onChange={(e) => setQuoteText(e.target.value)}
+              className="min-h-[80px] resize-none"
+              maxLength={2000}
+              autoFocus
+            />
+            <QuotedPostCard post={{ id: post.id, content: post.content, mediaUrls: post.mediaUrls, author: post.author }} />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                disabled={!quoteText.trim() || quotePost.isPending}
+                onClick={() => quotePost.mutate({ content: quoteText.trim(), quotedPostId: post.id })}
+              >
+                {quotePost.isPending ? "Posting..." : "Quote"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   )
 })
