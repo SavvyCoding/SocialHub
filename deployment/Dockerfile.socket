@@ -1,0 +1,37 @@
+# ── Stage 1: Install dependencies ──
+FROM node:22-alpine AS deps
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /app
+
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY apps/socket-server/package.json apps/socket-server/package.json
+RUN pnpm install --frozen-lockfile --filter socket-server --shamefully-hoist
+
+# ── Stage 2: Build ──
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY apps/socket-server ./apps/socket-server
+
+RUN ./node_modules/.bin/tsc -p apps/socket-server/tsconfig.json
+
+# ── Stage 3: Production ──
+FROM node:22-alpine AS runner
+RUN apk add --no-cache tini
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+RUN addgroup --system --gid 1001 appgroup && \
+    adduser --system --uid 1001 appuser
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/apps/socket-server/dist ./dist
+
+USER appuser
+EXPOSE 3001
+ENV PORT=3001
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "dist/index.js"]

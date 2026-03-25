@@ -1,0 +1,52 @@
+[
+  {
+    "id": "01",
+    "title": "Login and Registration",
+    "text": "Welcome to Social Hub, a full-featured social platform. Let's start with authentication. Here's the login page where users can sign in with email and password, or use Google and GitHub for single sign-on. The registration page allows new users to create an account. Watch as Alice logs in with her credentials. After successful authentication, she's redirected to her personalized feed."
+  },
+  {
+    "id": "02",
+    "title": "Feed and Creating Posts",
+    "text": "The home feed shows posts from people you follow, sorted by most recent. Users can scroll through their personalized timeline. To create a new post, click the Tweet button in the navigation bar. A compose dialog opens where you can write your thoughts and add hashtags. After posting, the content appears immediately in the feed. The Explore tab shows trending public posts from all users across the platform."
+  },
+  {
+    "id": "03",
+    "title": "Post Interactions",
+    "text": "Social Hub supports rich post interactions. Users can like posts by clicking the heart icon. The comment feature lets you engage in conversations under any post. You can bookmark posts to save them for later reading. The share button lets you repost content to your own followers. All your bookmarked posts are accessible from the dedicated bookmarks page in the navigation."
+  },
+  {
+    "id": "04",
+    "title": "Social Connections",
+    "text": "Building your social network is easy. Visit any user's profile and click the Follow button to start seeing their posts in your feed. Here, Alice follows Bob. You can also discover new users by browsing profiles. When Bob follows Carol, her posts will appear in his feed. The follow and unfollow system is instant, and your feed updates in real time to reflect your connections."
+  },
+  {
+    "id": "05",
+    "title": "User Profiles and Showcase",
+    "text": "Each user has a rich profile page showing their bio, follower counts, and activity. The profile features multiple showcase tabs. The Books tab shows your reading collection. The Movies tab displays your watchlist. Places shows locations you've visited. And Goals tracks your personal objectives. You can also visit other users' profiles to see their showcases and activity."
+  },
+  {
+    "id": "06",
+    "title": "Books Showcase",
+    "text": "The Books showcase is a personal library manager. Browse your book collection with status filters for To Read, Currently Reading, and Read books. Each book shows its cover, author, year, and your star rating. Click Add a Book to search the Open Library catalog and add titles to your shelf. The search feature finds books by title or author. A trending sidebar shows what's popular across the platform."
+  },
+  {
+    "id": "07",
+    "title": "Movies and Watchlist",
+    "text": "The Watchlist feature lets you track movies and TV shows. Filter by content type, choosing between All, Movies, or TV Shows. Status tabs let you organize by Watching, Want to Watch, Watched, or Dropped. Add new titles by searching the TMDB database. The search pulls movie posters, release years, and descriptions so you can easily find and track your entertainment."
+  },
+  {
+    "id": "08",
+    "title": "Places and Goals",
+    "text": "The Places feature is your travel journal. Track locations you've visited with details and photos. Add new places with the Add a Place button. The Goals feature helps you set and track personal objectives. Filter goals by status: All, In Progress, or Completed. Each goal shows its category, like Career or Health. Add new goals with a title and description, and toggle completion as you achieve them."
+  },
+  {
+    "id": "09",
+    "title": "Direct Messaging",
+    "text": "Social Hub includes a full messaging system. Navigate to Messages from the nav bar to see your conversations. Search for users to start new conversations. Type your message and hit send for instant delivery. Messages update in real time. Here, Alice sends a message to Bob, then Bob switches to his account to read and reply. The conversation flows naturally between users."
+  },
+  {
+    "id": "10",
+    "title": "Notifications and Search",
+    "text": "The notifications page keeps you informed about activity on your account. You'll see alerts for new followers, likes, comments, and messages. The search feature lets you discover users and content across the platform. Search by username to find people, or search by topic to discover relevant posts and hashtags. Thank you for watching this product training. Social Hub brings together social networking, content showcasing, and real-time communication in one platform."
+  }
+]

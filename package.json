@@ -1,0 +1,22 @@
+{
+  "name": "social-platform",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:push": "pnpm --filter web prisma db push",
+    "db:migrate": "pnpm --filter web prisma migrate dev",
+    "db:studio": "pnpm --filter web prisma studio",
+    "db:seed": "pnpm --filter web prisma db seed",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "turbo": "^2.3.3"
+  }
+}

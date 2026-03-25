@@ -1,0 +1,752 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_DATABASE_URL")
+  extensions = [vector]
+}
+
+// ─────────────────────────────────────────
+// CORE IDENTITY
+// ─────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  name          String
+  bio           String?
+  avatarUrl     String?
+  coverUrl      String?
+  location      String?
+  website       String?
+  isVerified    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Auth.js required relations
+  accounts Account[]
+  sessions Session[]
+
+  // Social
+  posts            Post[]
+  stories          Story[]
+  comments         Comment[]
+  likes            Like[]
+  shares           Share[]
+  sentFollows      Follow[]        @relation("follower")
+  receivedFollows  Follow[]        @relation("following")
+  sentRequests     FriendRequest[] @relation("requester")
+  receivedRequests FriendRequest[] @relation("requestee")
+  notifications    Notification[]  @relation("recipient")
+
+  // Professional Profile
+  experiences Experience[]
+  educations  Education[]
+  skills      UserSkill[]
+  endorsementsGiven Endorsement[] @relation("endorser")
+
+  // Showcase
+  bookEntries  BookEntry[]
+  movieEntries MovieEntry[]
+  places       Place[]
+  goals        Goal[]
+
+  // DMs
+  conversations1 Conversation[]  @relation("ConvParticipant1")
+  conversations2 Conversation[]  @relation("ConvParticipant2")
+  sentMessages   DirectMessage[] @relation("SentMessages")
+
+  // Block / Mute
+  blocks    Block[] @relation("BlocksGiven")
+  blockedBy Block[] @relation("BlocksReceived")
+  mutes     Mute[]  @relation("MutesGiven")
+  mutedBy   Mute[]  @relation("MutesReceived")
+
+  // Bookmarks
+  bookmarks Bookmark[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expires])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────
+// SOCIAL GRAPH
+// ─────────────────────────────────────────
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("follower", fields: [followerId], references: [id])
+  following User @relation("following", fields: [followingId], references: [id])
+
+  @@unique([followerId, followingId])
+  @@index([followingId, createdAt(sort: Desc)])
+  @@index([followerId, createdAt(sort: Desc)])
+  @@map("follows")
+}
+
+model FriendRequest {
+  id          String              @id @default(cuid())
+  requesterId String
+  requesteeId String
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+
+  requester User @relation("requester", fields: [requesterId], references: [id])
+  requestee User @relation("requestee", fields: [requesteeId], references: [id])
+
+  @@unique([requesterId, requesteeId])
+  @@index([requesteeId, status])
+  @@index([requesterId, status])
+  @@map("friend_requests")
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// ─────────────────────────────────────────
+// POSTS & FEED
+// ─────────────────────────────────────────
+
+model Post {
+  id         String      @id @default(cuid())
+  authorId   String
+  content    String?
+  mediaUrls  String[]
+  mediaTypes MediaType[]
+  visibility Visibility  @default(PUBLIC)
+  viewCount   Int         @default(0)
+  isPinned    Boolean     @default(false)
+  pinnedAt    DateTime?
+  scheduledAt DateTime?
+  isPublished Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Reply / repost tree
+  parentPostId   String?
+  originalPostId String?
+
+  author   User      @relation(fields: [authorId], references: [id])
+  parent   Post?     @relation("PostReplies", fields: [parentPostId], references: [id])
+  replies  Post[]    @relation("PostReplies")
+  likes     Like[]
+  comments  Comment[]
+  shares    Share[]
+  hashtags  PostHashtag[]
+  mentions  PostMention[]
+  bookmarks Bookmark[]
+  poll      Poll?
+
+  @@index([authorId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([visibility, createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  parentId  String?
+  createdAt DateTime @default(now())
+
+  post    Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author  User      @relation(fields: [authorId], references: [id])
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentReplies")
+  likes   Like[]
+
+  @@index([postId, createdAt])
+  @@map("comments")
+}
+
+model Like {
+  id           String       @id @default(cuid())
+  userId       String
+  postId       String?
+  commentId    String?
+  reactionType ReactionType @default(LIKE)
+  createdAt    DateTime     @default(now())
+
+  user    User     @relation(fields: [userId], references: [id])
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@unique([userId, commentId])
+  @@index([postId])
+  @@index([commentId])
+  @@map("likes")
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  CELEBRATE
+  INSIGHTFUL
+  CURIOUS
+}
+
+model Share {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([postId])
+  @@map("shares")
+}
+
+model Hashtag {
+  id    String        @id @default(cuid())
+  name  String        @unique
+  posts PostHashtag[]
+
+  @@map("hashtags")
+}
+
+model PostHashtag {
+  postId    String
+  hashtagId String
+
+  post    Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  hashtag Hashtag @relation(fields: [hashtagId], references: [id])
+
+  @@id([postId, hashtagId])
+  @@index([hashtagId])
+  @@map("post_hashtags")
+}
+
+model PostMention {
+  id     String @id @default(cuid())
+  postId String
+  userId String
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([userId])
+  @@map("post_mentions")
+}
+
+// ─────────────────────────────────────────
+// POLLS
+// ─────────────────────────────────────────
+
+model Poll {
+  id        String       @id @default(cuid())
+  postId    String       @unique
+  question  String
+  expiresAt DateTime?
+  createdAt DateTime     @default(now())
+
+  post    Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  options PollOption[]
+  votes   PollVote[]
+
+  @@map("polls")
+}
+
+model PollOption {
+  id        String @id @default(cuid())
+  pollId    String
+  text      String
+  order     Int
+  voteCount Int    @default(0)
+
+  poll  Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes PollVote[]
+
+  @@index([pollId])
+  @@map("poll_options")
+}
+
+model PollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  poll   Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pollId])
+  @@index([pollId])
+  @@map("poll_votes")
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+}
+
+enum Visibility {
+  PUBLIC
+  FOLLOWERS
+  CONNECTIONS
+  PRIVATE
+}
+
+// ─────────────────────────────────────────
+// STORIES
+// ─────────────────────────────────────────
+
+model Story {
+  id        String    @id @default(cuid())
+  authorId  String
+  mediaUrl  String
+  mediaType MediaType
+  caption   String?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  author User        @relation(fields: [authorId], references: [id])
+  views  StoryView[]
+
+  @@index([authorId, expiresAt])
+  @@map("stories")
+}
+
+model StoryView {
+  id       String   @id @default(cuid())
+  storyId  String
+  viewerId String
+  viewedAt DateTime @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, viewerId])
+  @@index([storyId])
+  @@map("story_views")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────
+
+model Notification {
+  id          String           @id @default(cuid())
+  recipientId String
+  actorId     String?
+  type        NotificationType
+  entityType  String?
+  entityId    String?
+  data        Json?
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  recipient User @relation("recipient", fields: [recipientId], references: [id])
+
+  @@index([recipientId, isRead, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  FOLLOW
+  LIKE_POST
+  LIKE_COMMENT
+  COMMENT
+  MENTION
+  SHARE
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  ENDORSEMENT
+  STORY_VIEW
+  MESSAGE
+}
+
+// ─────────────────────────────────────────
+// PROFESSIONAL PROFILE
+// ─────────────────────────────────────────
+
+model Experience {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  company     String
+  location    String?
+  startDate   DateTime
+  endDate     DateTime?
+  isCurrent   Boolean   @default(false)
+  description String?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("experiences")
+}
+
+model Education {
+  id        String @id @default(cuid())
+  userId    String
+  school    String
+  degree    String?
+  field     String?
+  startYear Int
+  endYear   Int?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("educations")
+}
+
+model Skill {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  userSkills UserSkill[]
+
+  @@map("skills")
+}
+
+model UserSkill {
+  id      String @id @default(cuid())
+  userId  String
+  skillId String
+
+  user         User          @relation(fields: [userId], references: [id])
+  skill        Skill         @relation(fields: [skillId], references: [id])
+  endorsements Endorsement[]
+
+  @@unique([userId, skillId])
+  @@index([userId])
+  @@map("user_skills")
+}
+
+model Endorsement {
+  id          String   @id @default(cuid())
+  userSkillId String
+  endorserId  String
+  createdAt   DateTime @default(now())
+
+  userSkill UserSkill @relation(fields: [userSkillId], references: [id])
+  endorser  User      @relation("endorser", fields: [endorserId], references: [id])
+
+  @@unique([userSkillId, endorserId])
+  @@map("endorsements")
+}
+
+// ─────────────────────────────────────────
+// SHOWCASE — BOOKS
+// ─────────────────────────────────────────
+
+model BookEntry {
+  id          String        @id @default(cuid())
+  userId      String
+  olWorkId    String
+  title       String
+  author      String?
+  coverUrl    String?
+  publishYear Int?
+  status      ReadingStatus @default(WANT_TO_READ)
+  currentPage Int?
+  totalPages  Int?
+  rating      Int?
+  review      String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, olWorkId])
+  @@index([userId, status])
+  @@map("book_entries")
+}
+
+enum ReadingStatus {
+  WANT_TO_READ
+  READING
+  READ
+  DID_NOT_FINISH
+}
+
+// ─────────────────────────────────────────
+// SHOWCASE — MOVIES / SHOWS
+// ─────────────────────────────────────────
+
+model MovieEntry {
+  id          String        @id @default(cuid())
+  userId      String
+  tmdbId      Int
+  mediaType   TmdbMediaType
+  title       String
+  posterUrl   String?
+  releaseYear Int?
+  status         WatchStatus   @default(WANT_TO_WATCH)
+  currentEpisode Int?
+  totalEpisodes  Int?
+  rating         Int?
+  review         String?
+  watchedAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, tmdbId, mediaType])
+  @@index([userId, status, mediaType])
+  @@map("movie_entries")
+}
+
+enum TmdbMediaType {
+  MOVIE
+  TV
+}
+
+enum WatchStatus {
+  WANT_TO_WATCH
+  WATCHING
+  WATCHED
+  DROPPED
+}
+
+// ─────────────────────────────────────────
+// SHOWCASE — PLACES
+// ─────────────────────────────────────────
+
+model Place {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  country   String
+  city      String?
+  latitude  Float
+  longitude Float
+  visitedAt DateTime?
+  notes     String?
+  photoUrls String[]
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("places")
+}
+
+// ─────────────────────────────────────────
+// DIRECT MESSAGES
+// ─────────────────────────────────────────
+
+model Conversation {
+  id             String   @id @default(cuid())
+  participant1Id String
+  participant2Id String
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  participant1 User            @relation("ConvParticipant1", fields: [participant1Id], references: [id], onDelete: Cascade)
+  participant2 User            @relation("ConvParticipant2", fields: [participant2Id], references: [id], onDelete: Cascade)
+  messages     DirectMessage[]
+
+  @@unique([participant1Id, participant2Id])
+  @@index([participant1Id, lastMessageAt(sort: Desc)])
+  @@index([participant2Id, lastMessageAt(sort: Desc)])
+  @@map("conversations")
+}
+
+model DirectMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@map("direct_messages")
+}
+
+// ─────────────────────────────────────────
+// BLOCK / MUTE
+// ─────────────────────────────────────────
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("BlocksGiven", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("blocks")
+}
+
+model Mute {
+  id        String   @id @default(cuid())
+  muterId   String
+  mutedId   String
+  createdAt DateTime @default(now())
+
+  muter User @relation("MutesGiven", fields: [muterId], references: [id], onDelete: Cascade)
+  muted User @relation("MutesReceived", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@index([muterId])
+  @@map("mutes")
+}
+
+// ─────────────────────────────────────────
+// BOOKMARKS
+// ─────────────────────────────────────────
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("bookmarks")
+}
+
+// ─────────────────────────────────────────
+// FEED (Fan-out-on-write)
+// ─────────────────────────────────────────
+
+model FeedEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("feed_entries")
+}
+
+// ─────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  resource   String
+  resourceId String?
+  meta       Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([resource, action])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────
+// SHOWCASE — GOALS
+// ─────────────────────────────────────────
+
+model Goal {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  category    String?
+  isCompleted    Boolean   @default(false)
+  completedAt    DateTime?
+  targetDate     DateTime?
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
+  lastActivityAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isCompleted])
+  @@map("goals")
+}
+
+// ─────────────────────────────────────────
+// VECTOR EMBEDDINGS (pgvector)
+// ─────────────────────────────────────────
+
+model Embedding {
+  id         String                 @id @default(cuid())
+  entityType EmbeddingEntityType
+  entityId   String
+  vector     Unsupported("vector(384)")
+  content    String
+  updatedAt  DateTime               @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([entityType])
+  @@map("embeddings")
+}
+
+enum EmbeddingEntityType {
+  POST
+  USER
+}

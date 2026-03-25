@@ -1,0 +1,191 @@
+import { z } from "zod"
+import { TRPCError } from "@trpc/server"
+import bcrypt from "bcryptjs"
+import { router, publicProcedure, authedProcedure } from "../trpc"
+import { registerSchema } from "@/lib/validators/auth"
+
+export const userRouter = router({
+  register: publicProcedure.input(registerSchema).mutation(async ({ ctx, input }) => {
+    const { name, username, email, password } = input
+
+    const existing = await ctx.db.user.findFirst({
+      where: { OR: [{ email }, { username }] },
+    })
+    if (existing) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: existing.email === email ? "Email already in use" : "Username already taken",
+      })
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12)
+    const user = await ctx.db.user.create({
+      data: { name, username, email, passwordHash },
+    })
+
+    return { id: user.id, email: user.email, username: user.username }
+  }),
+
+  getByUsername: publicProcedure
+    .input(z.object({ username: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { username: input.username },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          bio: true,
+          avatarUrl: true,
+          coverUrl: true,
+          location: true,
+          website: true,
+          isVerified: true,
+          createdAt: true,
+          _count: {
+            select: {
+              sentFollows: true,
+              receivedFollows: true,
+              posts: true,
+            },
+          },
+        },
+      })
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" })
+      return user
+    }),
+
+  updateProfile: authedProcedure
+    .input(
+      z.object({
+        name: z.string().min(2).max(50).optional(),
+        bio: z.string().max(200).optional(),
+        location: z.string().max(100).optional(),
+        website: z.string().url().optional().or(z.literal("")),
+        avatarUrl: z.string().url().startsWith("https://").optional(),
+        coverUrl: z.string().url().startsWith("https://").optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: input,
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          bio: true,
+          avatarUrl: true,
+          coverUrl: true,
+          location: true,
+          website: true,
+        },
+      })
+    }),
+
+  me: authedProcedure.query(async ({ ctx }) => {
+    return ctx.db.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        bio: true,
+        avatarUrl: true,
+        coverUrl: true,
+        location: true,
+        website: true,
+        isVerified: true,
+        createdAt: true,
+      },
+    })
+  }),
+
+  search: authedProcedure
+    .input(z.object({ q: z.string().min(1).max(100), limit: z.number().default(10) }))
+    .query(async ({ ctx, input }) => {
+      const { q, limit } = input
+      return ctx.db.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { username: { contains: q, mode: "insensitive" } },
+          ],
+          NOT: { id: ctx.session.user.id },
+        },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          avatarUrl: true,
+          bio: true,
+          isVerified: true,
+          _count: { select: { receivedFollows: true } },
+        },
+        take: limit,
+        orderBy: { receivedFollows: { _count: "desc" } },
+      })
+    }),
+
+  getSuggestions: authedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    const following = await ctx.db.follow.findMany({
+      where: { followerId: userId },
+      select: { followingId: true },
+    })
+    const followingIds = [userId, ...following.map((f) => f.followingId)]
+
+    return ctx.db.user.findMany({
+      where: { id: { notIn: followingIds } },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        avatarUrl: true,
+        bio: true,
+        isVerified: true,
+        _count: { select: { receivedFollows: true } },
+      },
+      take: 5,
+      orderBy: { receivedFollows: { _count: "desc" } },
+    })
+  }),
+
+  // For @mention autocomplete in the composer
+  getMentionSuggestions: authedProcedure
+    .input(z.object({ q: z.string().min(1).max(50) }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.user.findMany({
+        where: {
+          OR: [
+            { username: { startsWith: input.q, mode: "insensitive" } },
+            { name: { contains: input.q, mode: "insensitive" } },
+          ],
+          NOT: { id: ctx.session.user.id },
+        },
+        select: { id: true, name: true, username: true, avatarUrl: true },
+        take: 6,
+        orderBy: { receivedFollows: { _count: "desc" } },
+      })
+    }),
+
+  getActivityHeatmap: publicProcedure
+    .input(z.object({ userId: z.string(), days: z.number().default(365) }))
+    .query(async ({ ctx, input }) => {
+      const since = new Date()
+      since.setDate(since.getDate() - input.days)
+
+      const result = await ctx.db.$queryRaw<{ date: string; count: bigint }[]>`
+        SELECT DATE("createdAt")::text as date, COUNT(*)::bigint as count
+        FROM posts
+        WHERE "authorId" = ${input.userId}
+          AND "createdAt" >= ${since}
+          AND "isPublished" = true
+        GROUP BY DATE("createdAt")
+        ORDER BY date ASC
+      `
+
+      return result.map((r) => ({ date: r.date, count: Number(r.count) }))
+    }),
+})

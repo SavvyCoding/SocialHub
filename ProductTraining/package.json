@@ -1,0 +1,8 @@
+{
+  "name": "product-training",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.52.0"
+  }
+}

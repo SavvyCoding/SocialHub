@@ -1,0 +1,13 @@
+{
+  "name": "social-platform-tests",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "report": "npx playwright show-report results/html",
+    "combine-videos": "node scripts/combine-videos.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.52.0"
+  }
+}
