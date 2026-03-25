@@ -1,5 +1,47 @@
 import { describe, it, expect } from "vitest"
-import { createPostSchema, getFeedSchema } from "@/lib/validators/post"
+import { createPostSchema, getFeedSchema, pollSchema } from "@/lib/validators/post"
+
+// ─── pollSchema ───────────────────────────────────────────────────────────────
+
+describe("pollSchema", () => {
+  it("accepts a valid poll with 2 options", () => {
+    expect(pollSchema.safeParse({ question: "Cats or dogs?", options: ["Cats", "Dogs"] }).success).toBe(true)
+  })
+
+  it("accepts a valid poll with up to 4 options", () => {
+    expect(
+      pollSchema.safeParse({ question: "Pick one", options: ["A", "B", "C", "D"] }).success
+    ).toBe(true)
+  })
+
+  it("rejects a poll with fewer than 2 options", () => {
+    expect(pollSchema.safeParse({ question: "Single option?", options: ["Only one"] }).success).toBe(false)
+  })
+
+  it("rejects a poll with more than 4 options", () => {
+    expect(
+      pollSchema.safeParse({ question: "Too many", options: ["A", "B", "C", "D", "E"] }).success
+    ).toBe(false)
+  })
+
+  it("rejects a poll with an empty question", () => {
+    expect(pollSchema.safeParse({ question: "", options: ["A", "B"] }).success).toBe(false)
+  })
+
+  it("rejects a poll with an empty option", () => {
+    expect(pollSchema.safeParse({ question: "Valid?", options: ["", "B"] }).success).toBe(false)
+  })
+
+  it("rejects a question longer than 200 characters", () => {
+    expect(pollSchema.safeParse({ question: "q".repeat(201), options: ["A", "B"] }).success).toBe(false)
+  })
+
+  it("rejects an option longer than 100 characters", () => {
+    expect(pollSchema.safeParse({ question: "Valid?", options: ["a".repeat(101), "B"] }).success).toBe(false)
+  })
+})
+
+// ─── createPostSchema ─────────────────────────────────────────────────────────
 
 describe("createPostSchema", () => {
   it("accepts a text-only post", () => {
@@ -21,11 +63,37 @@ describe("createPostSchema", () => {
     ).toBe(true)
   })
 
-  it("rejects a post with neither content nor media", () => {
+  it("accepts a poll-only post with no content or media", () => {
+    expect(
+      createPostSchema.safeParse({
+        poll: { question: "Favorite season?", options: ["Spring", "Summer", "Autumn", "Winter"] },
+      }).success
+    ).toBe(true)
+  })
+
+  it("accepts a post with content and a poll", () => {
+    expect(
+      createPostSchema.safeParse({
+        content: "Vote below!",
+        poll: { question: "Best framework?", options: ["React", "Vue"] },
+      }).success
+    ).toBe(true)
+  })
+
+  it("accepts a post with a scheduledAt date", () => {
+    expect(
+      createPostSchema.safeParse({
+        content: "Future post",
+        scheduledAt: new Date(Date.now() + 3_600_000),
+      }).success
+    ).toBe(true)
+  })
+
+  it("rejects a post with neither content, media, nor poll", () => {
     expect(createPostSchema.safeParse({}).success).toBe(false)
   })
 
-  it("rejects whitespace-only content with no media", () => {
+  it("rejects whitespace-only content with no media or poll", () => {
     expect(createPostSchema.safeParse({ content: "   " }).success).toBe(false)
   })
 
@@ -82,7 +150,18 @@ describe("createPostSchema", () => {
   it("rejects an invalid visibility value", () => {
     expect(createPostSchema.safeParse({ content: "Hello", visibility: "INVALID" }).success).toBe(false)
   })
+
+  it("rejects a poll with only 1 option", () => {
+    expect(
+      createPostSchema.safeParse({
+        content: "Vote",
+        poll: { question: "Only one?", options: ["Just me"] },
+      }).success
+    ).toBe(false)
+  })
 })
+
+// ─── getFeedSchema ────────────────────────────────────────────────────────────
 
 describe("getFeedSchema", () => {
   it("defaults limit to 20 when no input provided", () => {

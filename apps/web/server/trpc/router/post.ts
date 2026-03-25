@@ -52,7 +52,7 @@ export const postRouter = router({
     return {
       posts: posts.map((p) => ({
         ...p,
-        ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false }),
+        ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
         parentPost: null,
       })),
       nextCursor,
@@ -85,7 +85,7 @@ export const postRouter = router({
     return {
       posts: posts.map((p) => ({
         ...p,
-        ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false }),
+        ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
         parentPost: null,
       })),
       nextCursor,
@@ -114,10 +114,11 @@ export const postRouter = router({
       }
 
       const posts = await ctx.db.post.findMany({
-        where: { authorId: author.id, parentPostId: null, ...visibilityFilter },
+        where: { authorId: author.id, parentPostId: null, isPublished: true, ...visibilityFilter },
         include: {
           author: { select: authorSelect },
           _count: { select: countSelect },
+          poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
         },
         orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
         take: input.limit + 1,
@@ -131,7 +132,7 @@ export const postRouter = router({
       return {
         posts: posts.map((p) => ({
           ...p,
-          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false }),
+          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
           parentPost: null,
         })),
         nextCursor,
@@ -325,7 +326,10 @@ export const postRouter = router({
     }),
 
   toggleLike: authedProcedure
-    .input(z.object({ postId: z.string() }))
+    .input(z.object({
+      postId: z.string(),
+      reactionType: z.enum(["LIKE", "LOVE", "CELEBRATE", "INSIGHTFUL", "CURIOUS"]).default("LIKE"),
+    }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const post = await ctx.db.post.findUnique({ where: { id: input.postId }, select: { authorId: true } })
@@ -333,14 +337,24 @@ export const postRouter = router({
 
       const existing = await ctx.db.like.findUnique({
         where: { userId_postId: { userId, postId: input.postId } },
+        select: { reactionType: true },
       })
+
       if (existing) {
-        await ctx.db.like.delete({ where: { userId_postId: { userId, postId: input.postId } } })
-        return { liked: false }
+        if (existing.reactionType === input.reactionType) {
+          await ctx.db.like.delete({ where: { userId_postId: { userId, postId: input.postId } } })
+          return { liked: false, reactionType: null }
+        }
+        await ctx.db.like.update({
+          where: { userId_postId: { userId, postId: input.postId } },
+          data: { reactionType: input.reactionType },
+        })
+        return { liked: true, reactionType: input.reactionType }
       }
-      await ctx.db.like.create({ data: { userId, postId: input.postId } })
+
+      await ctx.db.like.create({ data: { userId, postId: input.postId, reactionType: input.reactionType } })
       eventBus.emit("post.liked", { postId: input.postId, actorId: userId, authorId: post.authorId })
-      return { liked: true }
+      return { liked: true, reactionType: input.reactionType }
     }),
 
   toggleShare: authedProcedure
@@ -458,7 +472,7 @@ export const postRouter = router({
       return {
         posts: posts.map((p) => ({
           ...p,
-          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false }),
+          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
           parentPost: p.parent ?? null,
         })),
         nextCursor,
@@ -494,7 +508,7 @@ export const postRouter = router({
       return {
         posts: posts.map((p) => ({
           ...p,
-          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false }),
+          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
           parentPost: p.parent ?? null,
         })),
         nextCursor,
@@ -566,6 +580,7 @@ export const postRouter = router({
               author: { select: authorSelect },
               _count: { select: countSelect },
               parent: { select: { id: true, author: { select: { id: true, name: true, username: true } } } },
+              poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
             },
           },
         },

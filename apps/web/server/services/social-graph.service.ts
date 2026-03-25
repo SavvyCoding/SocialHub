@@ -46,6 +46,7 @@ interface InteractionFlags {
   isLiked: boolean
   isShared: boolean
   isBookmarked: boolean
+  reactionType: string | null
 }
 
 export async function batchGetInteractions(
@@ -56,19 +57,20 @@ export async function batchGetInteractions(
   if (postIds.length === 0) return new Map()
 
   const [likes, shares, bookmarks] = await Promise.all([
-    db.like.findMany({ where: { userId, postId: { in: postIds } }, select: { postId: true } }),
+    db.like.findMany({ where: { userId, postId: { in: postIds } }, select: { postId: true, reactionType: true } }),
     db.share.findMany({ where: { userId, postId: { in: postIds } }, select: { postId: true } }),
     db.bookmark.findMany({ where: { userId, postId: { in: postIds } }, select: { postId: true } }),
   ])
 
-  const likedSet = new Set(likes.map((l) => l.postId))
+  const likeMap = new Map(likes.map((l) => [l.postId, l.reactionType as string]))
   const sharedSet = new Set(shares.map((s) => s.postId))
   const bookmarkedSet = new Set(bookmarks.map((b) => b.postId))
 
   const result = new Map<string, InteractionFlags>()
   for (const id of postIds) {
     result.set(id, {
-      isLiked: likedSet.has(id),
+      isLiked: likeMap.has(id),
+      reactionType: likeMap.get(id) ?? null,
       isShared: sharedSet.has(id),
       isBookmarked: bookmarkedSet.has(id),
     })

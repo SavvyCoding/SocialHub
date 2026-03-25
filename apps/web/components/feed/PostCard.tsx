@@ -1,15 +1,25 @@
 "use client"
 
-import { useState, memo } from "react"
+import { useState, useRef, memo } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Heart, MessageCircle, Repeat2, MoreHorizontal, Trash2, Bookmark, BadgeCheck, Eye, Pin } from "lucide-react"
+import { Heart, MessageCircle, Repeat2, MoreHorizontal, Trash2, Bookmark, BadgeCheck, Eye, Pin, Clock } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { trpc } from "@/lib/trpc/client"
 import { formatRelativeTime } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/common/UserAvatar"
 import { cn } from "@/lib/utils"
+
+const REACTION_MAP: Record<string, string> = {
+  LIKE: "❤️",
+  LOVE: "😍",
+  CELEBRATE: "🎉",
+  INSIGHTFUL: "💡",
+  CURIOUS: "🤔",
+}
+const REACTION_TYPES = ["LIKE", "LOVE", "CELEBRATE", "INSIGHTFUL", "CURIOUS"] as const
+type ReactionType = typeof REACTION_TYPES[number]
 
 interface PostAuthor {
   id: string
@@ -25,6 +35,20 @@ interface PostCount {
   shares: number
 }
 
+interface PollOption {
+  id: string
+  text: string
+  order: number
+  voteCount: number
+}
+
+interface Poll {
+  id: string
+  question: string
+  options: PollOption[]
+  votes?: { optionId: string }[]
+}
+
 interface Post {
   id: string
   content: string | null
@@ -35,8 +59,12 @@ interface Post {
   isLiked: boolean
   isShared: boolean
   isBookmarked?: boolean
+  reactionType?: string | null
   viewCount?: number
   isPinned?: boolean
+  scheduledAt?: Date | string | null
+  isPublished?: boolean
+  poll?: Poll | null
   parentPost: {
     id: string
     author: { id: string; name: string; username: string }
@@ -48,28 +76,185 @@ interface PostCardProps {
   style?: React.CSSProperties
 }
 
+// ─── Poll display ─────────────────────────────────────────────────────────────
+
+function PollDisplay({ poll, postId }: { poll: Poll; postId: string }) {
+  const utils = trpc.useUtils()
+  const [voted, setVoted] = useState<string | null>(poll.votes?.[0]?.optionId ?? null)
+  const [localCounts, setLocalCounts] = useState<Record<string, number>>(
+    Object.fromEntries(poll.options.map((o) => [o.id, o.voteCount]))
+  )
+
+  const votePoll = trpc.post.votePoll.useMutation({
+    onMutate: ({ optionId }) => {
+      setVoted(optionId)
+      setLocalCounts((prev) => ({ ...prev, [optionId]: (prev[optionId] ?? 0) + 1 }))
+    },
+    onError: (_, { optionId }) => {
+      setVoted(null)
+      setLocalCounts((prev) => ({ ...prev, [optionId]: Math.max(0, (prev[optionId] ?? 0) - 1) }))
+    },
+    onSuccess: () => utils.post.getFeed.invalidate(),
+  })
+
+  const total = Object.values(localCounts).reduce((a, b) => a + b, 0)
+  const showResults = voted !== null
+
+  return (
+    <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
+      <p className="text-sm font-medium">{poll.question}</p>
+      <div className="space-y-1.5">
+        {poll.options.map((option) => {
+          const count = localCounts[option.id] ?? 0
+          const pct = total > 0 ? Math.round((count / total) * 100) : 0
+          const isChosen = voted === option.id
+
+          return showResults ? (
+            <div key={option.id} className="relative rounded-lg overflow-hidden">
+              <div
+                className={cn(
+                  "absolute inset-0 rounded-lg transition-all duration-500",
+                  isChosen ? "bg-primary/20" : "bg-muted"
+                )}
+                style={{ width: `${pct}%` }}
+              />
+              <div className="relative flex items-center justify-between px-3 py-2 text-sm">
+                <span className={cn("font-medium", isChosen && "text-primary")}>{option.text}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{pct}%</span>
+              </div>
+            </div>
+          ) : (
+            <button
+              key={option.id}
+              className="w-full rounded-lg border px-3 py-2 text-sm text-left hover:bg-accent hover:border-primary transition-colors"
+              onClick={() => votePoll.mutate({ pollId: poll.id, optionId: option.id })}
+              disabled={votePoll.isPending}
+            >
+              {option.text}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">{total} vote{total !== 1 ? "s" : ""}</p>
+    </div>
+  )
+}
+
+// ─── Reaction picker ──────────────────────────────────────────────────────────
+
+function ReactionButton({
+  isLiked,
+  likeCount,
+  reactionType,
+  onReact,
+  disabled,
+}: {
+  isLiked: boolean
+  likeCount: number
+  reactionType: string | null
+  onReact: (type: ReactionType) => void
+  disabled: boolean
+}) {
+  const [showPicker, setShowPicker] = useState(false)
+  const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openPicker = () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    showTimer.current = setTimeout(() => setShowPicker(true), 400)
+  }
+  const closePicker = () => {
+    if (showTimer.current) clearTimeout(showTimer.current)
+    hideTimer.current = setTimeout(() => setShowPicker(false), 200)
+  }
+
+  const currentEmoji = isLiked && reactionType ? REACTION_MAP[reactionType] ?? "❤️" : null
+  const currentReaction = isLiked && reactionType ? reactionType : null
+
+  return (
+    <div className="relative" onMouseEnter={openPicker} onMouseLeave={closePicker}>
+      {/* Reaction picker popup */}
+      {showPicker && !disabled && (
+        <div
+          className="absolute bottom-full left-0 mb-1 z-50 flex items-center gap-1 rounded-full border bg-popover px-2 py-1 shadow-lg"
+          onMouseEnter={openPicker}
+          onMouseLeave={closePicker}
+        >
+          {REACTION_TYPES.map((type) => (
+            <button
+              key={type}
+              className={cn(
+                "text-lg leading-none p-1 rounded-full transition-transform hover:scale-125",
+                currentReaction === type && "ring-2 ring-primary ring-offset-1"
+              )}
+              title={type.charAt(0) + type.slice(1).toLowerCase()}
+              onClick={() => {
+                setShowPicker(false)
+                onReact(type)
+              }}
+            >
+              {REACTION_MAP[type]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Main like button */}
+      <button
+        className={cn(
+          "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors active:scale-95",
+          isLiked ? "text-red-500 hover:bg-red-500/10" : "text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+        )}
+        onClick={() => onReact((currentReaction as ReactionType) ?? "LIKE")}
+        disabled={disabled}
+      >
+        {currentEmoji ? (
+          <span className="text-base leading-none">{currentEmoji}</span>
+        ) : (
+          <Heart className="h-[18px] w-[18px]" />
+        )}
+        <span className="text-xs tabular-nums">{likeCount > 0 ? likeCount : ""}</span>
+      </button>
+    </div>
+  )
+}
+
+// ─── PostCard ─────────────────────────────────────────────────────────────────
+
 export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
   const { data: session } = useSession()
   const [isLiked, setIsLiked] = useState(post.isLiked)
   const [likeCount, setLikeCount] = useState(post._count.likes)
+  const [reactionType, setReactionType] = useState<string | null>(post.reactionType ?? null)
   const [isShared, setIsShared] = useState(post.isShared)
   const [shareCount, setShareCount] = useState(post._count.shares)
   const [isBookmarked, setIsBookmarked] = useState(post.isBookmarked ?? false)
   const [showMenu, setShowMenu] = useState(false)
-  const [likeAnimating, setLikeAnimating] = useState(false)
   const [bookmarkAnimating, setBookmarkAnimating] = useState(false)
 
   const utils = trpc.useUtils()
 
   const toggleLike = trpc.post.toggleLike.useMutation({
-    onMutate: () => {
-      if (!isLiked) setLikeAnimating(true)
-      setIsLiked((prev) => !prev)
-      setLikeCount((prev) => (isLiked ? prev - 1 : prev + 1))
+    onMutate: ({ reactionType: rt }) => {
+      if (isLiked && reactionType === rt) {
+        // Toggle off
+        setIsLiked(false)
+        setReactionType(null)
+        setLikeCount((prev) => prev - 1)
+      } else if (isLiked) {
+        // Change reaction
+        setReactionType(rt)
+      } else {
+        // New like
+        setIsLiked(true)
+        setReactionType(rt)
+        setLikeCount((prev) => prev + 1)
+      }
     },
     onError: () => {
-      setIsLiked((prev) => !prev)
-      setLikeCount((prev) => (isLiked ? prev + 1 : prev - 1))
+      setIsLiked(post.isLiked)
+      setReactionType(post.reactionType ?? null)
+      setLikeCount(post._count.likes)
     },
   })
 
@@ -101,15 +286,25 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
   })
 
   const pinPost = trpc.post.togglePin.useMutation({
-    onSuccess: () => {
-      utils.post.getByUser.invalidate()
-    },
+    onSuccess: () => utils.post.getByUser.invalidate(),
   })
 
   const isOwner = session?.user?.id === post.author.id
 
+  const scheduledDate = post.scheduledAt
+    ? new Date(post.scheduledAt).toLocaleString("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : null
+
   return (
     <article className="px-4 py-3 space-y-2.5 animate-fade-in-up" style={style}>
+      {/* Scheduled label (owner only) */}
+      {isOwner && scheduledDate && post.isPublished === false && (
+        <div className="flex items-center gap-1.5 text-xs text-amber-500 -mb-1">
+          <Clock className="h-3 w-3" />
+          <span>Scheduled for {scheduledDate}</span>
+        </div>
+      )}
+
       {/* Pinned label */}
       {post.isPinned && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground -mb-1">
@@ -117,14 +312,12 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
           <span>Pinned</span>
         </div>
       )}
+
       {/* Replying-to label */}
       {post.parentPost && (
         <p className="text-xs text-muted-foreground">
           Replying to{" "}
-          <Link
-            href={`/profile/${post.parentPost.author.username}`}
-            className="text-primary hover:underline"
-          >
+          <Link href={`/profile/${post.parentPost.author.username}`} className="text-primary hover:underline">
             @{post.parentPost.author.username}
           </Link>
         </p>
@@ -145,9 +338,7 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
               className="font-semibold text-sm hover:underline flex items-center gap-1"
             >
               {post.author.name}
-              {post.author.isVerified && (
-                <BadgeCheck className="h-4 w-4 text-primary flex-shrink-0" />
-              )}
+              {post.author.isVerified && <BadgeCheck className="h-4 w-4 text-primary flex-shrink-0" />}
             </Link>
             <p className="text-xs text-muted-foreground">
               @{post.author.username} · {formatRelativeTime(post.createdAt)}
@@ -157,32 +348,21 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
 
         {isOwner && (
           <div className="relative">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full"
-              onClick={() => setShowMenu((prev) => !prev)}
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => setShowMenu((prev) => !prev)}>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
             {showMenu && (
               <div className="absolute right-0 top-8 z-10 rounded-lg border bg-popover shadow-md min-w-[140px]">
                 <button
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent rounded-t-lg"
-                  onClick={() => {
-                    setShowMenu(false)
-                    pinPost.mutate({ postId: post.id })
-                  }}
+                  onClick={() => { setShowMenu(false); pinPost.mutate({ postId: post.id }) }}
                 >
                   <Pin className="h-4 w-4" />
                   {post.isPinned ? "Unpin" : "Pin to profile"}
                 </button>
                 <button
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-accent rounded-b-lg"
-                  onClick={() => {
-                    setShowMenu(false)
-                    deletePost.mutate({ id: post.id })
-                  }}
+                  onClick={() => { setShowMenu(false); deletePost.mutate({ id: post.id }) }}
                 >
                   <Trash2 className="h-4 w-4" />
                   Delete
@@ -209,27 +389,19 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
         </div>
       )}
 
-      {/* Actions — evenly spaced */}
+      {/* Poll */}
+      {post.poll && <PollDisplay poll={post.poll} postId={post.id} />}
+
+      {/* Actions */}
       <div className="flex items-center justify-between pt-1 -mx-2">
-        {/* Like */}
-        <button
-          className={cn(
-            "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors hover:bg-red-500/10 active:scale-95",
-            isLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"
-          )}
-          onClick={() => toggleLike.mutate({ postId: post.id })}
+        {/* Reaction button */}
+        <ReactionButton
+          isLiked={isLiked}
+          likeCount={likeCount}
+          reactionType={reactionType}
+          onReact={(type) => session && toggleLike.mutate({ postId: post.id, reactionType: type })}
           disabled={!session}
-        >
-          <Heart
-            className={cn(
-              "h-[18px] w-[18px]",
-              isLiked && "fill-current",
-              likeAnimating && "animate-like-bounce"
-            )}
-            onAnimationEnd={() => setLikeAnimating(false)}
-          />
-          <span className="text-xs tabular-nums">{likeCount > 0 ? likeCount : ""}</span>
-        </button>
+        />
 
         {/* Comments */}
         <Link
@@ -240,7 +412,7 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
           <span className="text-xs tabular-nums">{post._count.comments > 0 ? post._count.comments : ""}</span>
         </Link>
 
-        {/* Share / Retweet */}
+        {/* Share */}
         <button
           className={cn(
             "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors hover:bg-green-500/10 active:scale-95",
@@ -264,11 +436,7 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
           title={isBookmarked ? "Remove bookmark" : "Bookmark"}
         >
           <Bookmark
-            className={cn(
-              "h-[18px] w-[18px]",
-              isBookmarked && "fill-current",
-              bookmarkAnimating && "animate-like-bounce"
-            )}
+            className={cn("h-[18px] w-[18px]", isBookmarked && "fill-current", bookmarkAnimating && "animate-like-bounce")}
             onAnimationEnd={() => setBookmarkAnimating(false)}
           />
         </button>

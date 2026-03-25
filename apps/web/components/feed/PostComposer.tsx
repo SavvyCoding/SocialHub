@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react"
 import { useSession } from "next-auth/react"
-import { ImagePlus, X, Loader2, Globe, Users, Lock } from "lucide-react"
+import { ImagePlus, X, Loader2, Globe, Users, Lock, BarChart3, Clock, Plus, Minus } from "lucide-react"
 import Image from "next/image"
 import { trpc } from "@/lib/trpc/client"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,15 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
   const [showVisibility, setShowVisibility] = useState(false)
   const [postError, setPostError] = useState<string | null>(null)
 
+  // Poll state
+  const [showPoll, setShowPoll] = useState(false)
+  const [pollQuestion, setPollQuestion] = useState("")
+  const [pollOptions, setPollOptions] = useState(["", ""])
+
+  // Schedule state
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState("")
+
   // @mention autocomplete state
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionRange, setMentionRange] = useState<{ start: number; end: number } | null>(null)
@@ -49,6 +58,11 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
       setMediaUrls([])
       setPostError(null)
       setMentionQuery(null)
+      setShowPoll(false)
+      setPollQuestion("")
+      setPollOptions(["", ""])
+      setShowSchedule(false)
+      setScheduledAt("")
       utils.post.getFeed.invalidate()
       onPostCreated?.()
     },
@@ -57,12 +71,10 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
     },
   })
 
-  // Detect @mention as user types
   const handleContentChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const val = e.target.value
       setContent(val)
-
       const pos = e.target.selectionStart ?? val.length
       const beforeCursor = val.slice(0, pos)
       const match = beforeCursor.match(/@([a-zA-Z0-9_]*)$/)
@@ -77,7 +89,6 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
     []
   )
 
-  // Close mention dropdown on Escape
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -113,7 +124,6 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
       alert("Maximum 4 images per post")
       return
     }
-
     setIsUploading(true)
     try {
       const uploads = files.map(async (file) => {
@@ -121,7 +131,6 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
         formData.append("file", file)
         formData.append("upload_preset", "social_platform")
         formData.append("folder", "posts")
-
         const res = await fetch(
           `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
           { method: "POST", body: formData }
@@ -143,16 +152,54 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
     setMediaUrls((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
+  const togglePoll = () => {
+    setShowPoll((p) => !p)
+    setShowSchedule(false)
+  }
+
+  const toggleSchedule = () => {
+    setShowSchedule((p) => !p)
+    setShowPoll(false)
+  }
+
+  const addPollOption = () => {
+    if (pollOptions.length < 4) setPollOptions((prev) => [...prev, ""])
+  }
+
+  const removePollOption = (i: number) => {
+    setPollOptions((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
   const handleSubmit = useCallback(() => {
-    if (!content.trim() && mediaUrls.length === 0) return
-    createPost.mutate({ content: content.trim() || undefined, mediaUrls, visibility })
-  }, [content, mediaUrls, visibility, createPost])
+    const poll = showPoll && pollQuestion.trim() && pollOptions.filter(Boolean).length >= 2
+      ? { question: pollQuestion.trim(), options: pollOptions.filter(Boolean) }
+      : undefined
+
+    const schedDate = showSchedule && scheduledAt ? new Date(scheduledAt) : undefined
+
+    if (!content.trim() && mediaUrls.length === 0 && !poll) return
+
+    createPost.mutate({
+      content: content.trim() || undefined,
+      mediaUrls,
+      visibility,
+      poll,
+      scheduledAt: schedDate,
+    })
+  }, [content, mediaUrls, visibility, showPoll, pollQuestion, pollOptions, showSchedule, scheduledAt, createPost])
 
   const charCount = content.length
   const isOverLimit = charCount > 2000
   const currentVisOption = VISIBILITY_OPTIONS.find((o) => o.value === visibility)!
 
+  const pollValid = !showPoll || (pollQuestion.trim().length > 0 && pollOptions.filter(Boolean).length >= 2)
+  const hasContent = content.trim().length > 0 || mediaUrls.length > 0 || (showPoll && pollValid && pollQuestion.trim())
+  const isScheduled = showSchedule && scheduledAt
+
   if (!session) return null
+
+  // Min datetime: 5 minutes from now
+  const minDateTime = new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16)
 
   return (
     <div className="rounded-lg border bg-card p-4 shadow-sm">
@@ -212,6 +259,69 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
             </div>
           )}
 
+          {/* Poll builder */}
+          {showPoll && (
+            <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
+              <input
+                type="text"
+                placeholder="Ask a question..."
+                value={pollQuestion}
+                onChange={(e) => setPollQuestion(e.target.value)}
+                maxLength={200}
+                className="w-full bg-transparent text-sm font-medium placeholder:text-muted-foreground outline-none border-b pb-1 mb-1"
+              />
+              {pollOptions.map((opt, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder={`Option ${i + 1}`}
+                    value={opt}
+                    onChange={(e) => {
+                      const next = [...pollOptions]
+                      next[i] = e.target.value
+                      setPollOptions(next)
+                    }}
+                    maxLength={100}
+                    className="flex-1 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  {pollOptions.length > 2 && (
+                    <button
+                      onClick={() => removePollOption(i)}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {pollOptions.length < 4 && (
+                <button
+                  onClick={addPollOption}
+                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <Plus className="h-3 w-3" /> Add option
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Schedule picker */}
+          {showSchedule && (
+            <div className="flex items-center gap-2 rounded-xl border bg-muted/30 p-3">
+              <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground mb-1">Schedule post for</p>
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  min={minDateTime}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  className="bg-transparent text-sm outline-none w-full"
+                />
+              </div>
+            </div>
+          )}
+
           {postError && <p className="text-xs text-destructive">{postError}</p>}
 
           <div className="flex items-center justify-between border-t pt-3">
@@ -229,15 +339,37 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
                 variant="ghost"
                 size="sm"
                 type="button"
-                disabled={isUploading || mediaUrls.length >= 4}
+                disabled={isUploading || mediaUrls.length >= 4 || showPoll}
                 onClick={() => fileInputRef.current?.click()}
                 className="text-muted-foreground hover:text-primary"
+                title="Add image"
               >
-                {isUploading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ImagePlus className="h-4 w-4" />
-                )}
+                {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+              </Button>
+
+              {/* Poll toggle */}
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={togglePoll}
+                className={showPoll ? "text-primary" : "text-muted-foreground hover:text-primary"}
+                title="Add poll"
+                disabled={mediaUrls.length > 0}
+              >
+                <BarChart3 className="h-4 w-4" />
+              </Button>
+
+              {/* Schedule toggle */}
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={toggleSchedule}
+                className={showSchedule ? "text-primary" : "text-muted-foreground hover:text-primary"}
+                title="Schedule post"
+              >
+                <Clock className="h-4 w-4" />
               </Button>
 
               {/* Visibility picker */}
@@ -284,10 +416,18 @@ export function PostComposer({ onPostCreated }: PostComposerProps) {
                 disabled={
                   createPost.isPending ||
                   isOverLimit ||
-                  (!content.trim() && mediaUrls.length === 0)
+                  !hasContent ||
+                  !pollValid ||
+                  (showSchedule && !scheduledAt)
                 }
               >
-                {createPost.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Post"}
+                {createPost.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : isScheduled ? (
+                  "Schedule"
+                ) : (
+                  "Post"
+                )}
               </Button>
             </div>
           </div>
