@@ -680,6 +680,7 @@ model Bookmark {
   id        String   @id @default(cuid())
   userId    String
   postId    String
+  folder    String?
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -856,4 +857,40 @@ model CollectionItem {
   @@unique([collectionId, postId])
   @@index([collectionId, addedAt(sort: Desc)])
   @@map("collection_items")
+}
+
+// ─────────────────────────────────────────
+// PHASE 2: POST REPORTS
+// ─────────────────────────────────────────
+
+model PostReport {
+  id         String           @id @default(cuid())
+  reporterId String
+  postId     String
+  reason     ReportReason
+  details    String?
+  status     ReportStatus     @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([reporterId, postId])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([reporterId])
+  @@map("post_reports")
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  MISINFORMATION
+  INAPPROPRIATE_CONTENT
+  HATE_SPEECH
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+  ACTIONED
 }

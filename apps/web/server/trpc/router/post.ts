@@ -984,4 +984,76 @@ export const postRouter = router({
       await ctx.db.comment.update({ where: { id: input.commentId }, data: { isPinned: false } })
       return { pinned: false }
     }),
+
+  // ─── Phase 2: Bookmark Folders ────────────────────────────────────────────────
+
+  updateBookmarkFolder: authedProcedure
+    .input(z.object({
+      postId: z.string(),
+      folder: z.string().max(50).nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const bookmark = await ctx.db.bookmark.findUnique({
+        where: { userId_postId: { userId, postId: input.postId } },
+      })
+      if (!bookmark) throw new TRPCError({ code: "NOT_FOUND", message: "Bookmark not found" })
+      await ctx.db.bookmark.update({
+        where: { userId_postId: { userId, postId: input.postId } },
+        data: { folder: input.folder },
+      })
+      return { success: true }
+    }),
+
+  getBookmarkFolders: authedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    const bookmarks = await ctx.db.bookmark.findMany({
+      where: { userId, folder: { not: null } },
+      select: { folder: true },
+      distinct: ["folder"],
+      orderBy: { folder: "asc" },
+    })
+    return bookmarks.map((b) => b.folder as string)
+  }),
+
+  getBookmarksByFolder: authedProcedure
+    .input(z.object({
+      folder: z.string().nullable(),
+      cursor: z.string().optional(),
+      limit: z.number().min(1).max(50).default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const bookmarks = await ctx.db.bookmark.findMany({
+        where: { userId, folder: input.folder },
+        include: {
+          post: {
+            include: {
+              author: { select: authorSelect },
+              _count: { select: countSelect },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+      })
+      let nextCursor: string | undefined
+      if (bookmarks.length > input.limit) nextCursor = bookmarks.pop()?.id
+
+      const postIds = bookmarks.map((b) => b.post.id)
+      const interactions = await batchGetInteractions(ctx.db, userId, postIds)
+
+      return {
+        posts: bookmarks.map((b) => ({
+          ...b.post,
+          folder: b.folder,
+          isLiked: interactions.get(b.post.id)?.isLiked ?? false,
+          isShared: interactions.get(b.post.id)?.isShared ?? false,
+          isBookmarked: true,
+          parentPost: null,
+        })),
+        nextCursor,
+      }
+    }),
 })

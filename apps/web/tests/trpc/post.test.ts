@@ -97,6 +97,7 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
       create: vi.fn().mockResolvedValue({}),
       delete: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue({}),
     },
     comment: {
       create: vi.fn(),
@@ -801,5 +802,41 @@ describe("postRouter.pinComment", () => {
     ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
     await expect(createCaller(ctx).pinComment({ commentId: "ghost" }))
       .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+})
+
+// ─── Phase 2: Bookmark Folders ────────────────────────────────────────────────
+
+describe("postRouter.updateBookmarkFolder", () => {
+  it("updates the folder of an existing bookmark", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.bookmark.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1", postId: "post-1" })
+    const result = await createCaller(ctx).updateBookmarkFolder({ postId: "post-1", folder: "Tech" })
+    expect(result.success).toBe(true)
+    expect(ctx.db.bookmark.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { folder: "Tech" } })
+    )
+  })
+
+  it("throws NOT_FOUND when bookmark does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.bookmark.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).updateBookmarkFolder({ postId: "post-1", folder: "Tech" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("removes folder when folder is null", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.bookmark.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1", postId: "post-1" })
+    const result = await createCaller(ctx).updateBookmarkFolder({ postId: "post-1", folder: null })
+    expect(result.success).toBe(true)
+    expect(ctx.db.bookmark.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { folder: null } })
+    )
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx(null)).updateBookmarkFolder({ postId: "p1", folder: "x" }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" })
   })
 })

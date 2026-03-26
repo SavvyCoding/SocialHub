@@ -54,6 +54,10 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
       create: vi.fn(),
       update: vi.fn(),
     },
+    user: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   } as unknown as Context["db"]
 
   return {
@@ -214,5 +218,48 @@ describe("followRouter.respondFriendRequest", () => {
     const result = await createCaller(ctx).respondFriendRequest({ requestId: "fr-1", accept: false })
     expect(result.status).toBe("REJECTED")
     expect(ctx.db.follow.createMany).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Phase 2: Mutual Followers ────────────────────────────────────────────────
+
+describe("followRouter.getMutualFollowers", () => {
+  it("returns users both parties follow in common", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "user-2" })
+    ;(ctx.db.follow.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ followingId: "user-3" }, { followingId: "user-4" }]) // viewer follows
+      .mockResolvedValueOnce([{ followingId: "user-3" }, { followingId: "user-5" }]) // target follows
+    ;(ctx.db.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "user-3", name: "Charlie", username: "charlie", avatarUrl: null, isVerified: false },
+    ])
+
+    const result = await createCaller(ctx).getMutualFollowers({ username: "target" })
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe("user-3")
+  })
+
+  it("returns empty when no mutual follows", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "user-2" })
+    ;(ctx.db.follow.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ followingId: "user-3" }])
+      .mockResolvedValueOnce([{ followingId: "user-5" }])
+
+    const result = await createCaller(ctx).getMutualFollowers({ username: "target" })
+    expect(result).toHaveLength(0)
+    expect(ctx.db.user.findMany).not.toHaveBeenCalled()
+  })
+
+  it("throws NOT_FOUND when target user does not exist", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).getMutualFollowers({ username: "ghost" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx(null)).getMutualFollowers({ username: "alice" }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" })
   })
 })

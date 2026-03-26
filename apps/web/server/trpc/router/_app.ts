@@ -14,6 +14,7 @@ import { messageRouter } from "./message"
 import { blockRouter } from "./block"
 import { searchRouter } from "./search"
 import { collectionRouter } from "./collection"
+import { reportRouter } from "./report"
 
 export const appRouter = router({
   post: postRouter,
@@ -31,6 +32,7 @@ export const appRouter = router({
   block: blockRouter,
   search: searchRouter,
   collection: collectionRouter,
+  report: reportRouter,
 })
 
 export type AppRouter = typeof appRouter

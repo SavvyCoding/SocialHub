@@ -151,4 +151,35 @@ export const followRouter = router({
       orderBy: { createdAt: "desc" },
     })
   }),
+
+  // ─── Phase 2: Mutual Followers ────────────────────────────────────────────────
+
+  getMutualFollowers: authedProcedure
+    .input(z.object({ username: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const viewerId = ctx.session.user.id
+
+      const targetUser = await ctx.db.user.findUnique({ where: { username: input.username }, select: { id: true } })
+      if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" })
+      if (targetUser.id === viewerId) return []
+
+      // Get both users' following lists
+      const [viewerFollowing, targetFollowing] = await Promise.all([
+        ctx.db.follow.findMany({ where: { followerId: viewerId }, select: { followingId: true } }),
+        ctx.db.follow.findMany({ where: { followerId: targetUser.id }, select: { followingId: true } }),
+      ])
+
+      const viewerSet = new Set(viewerFollowing.map((f) => f.followingId))
+      const mutualIds = targetFollowing
+        .map((f) => f.followingId)
+        .filter((id) => viewerSet.has(id) && id !== viewerId && id !== targetUser.id)
+
+      if (mutualIds.length === 0) return []
+
+      return ctx.db.user.findMany({
+        where: { id: { in: mutualIds } },
+        select: { id: true, name: true, username: true, avatarUrl: true, isVerified: true },
+        take: 20,
+      })
+    }),
 })
