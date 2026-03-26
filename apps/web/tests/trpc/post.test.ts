@@ -589,3 +589,82 @@ describe("postRouter.getFeed muted keyword filtering", () => {
     expect(callArgs.where).not.toHaveProperty("NOT")
   })
 })
+
+// ─── edit ─────────────────────────────────────────────────────────────────────
+
+describe("postRouter.edit", () => {
+  it("updates content and returns updated post", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+    ;(ctx.db.post.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "post-1",
+      content: "Updated content",
+      updatedAt: new Date(),
+    })
+
+    const result = await createCaller(ctx).edit({ id: "post-1", content: "Updated content" })
+    expect(result.content).toBe("Updated content")
+    expect(ctx.db.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { content: "Updated content" } })
+    )
+  })
+
+  it("throws NOT_FOUND when post does not exist", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).edit({ id: "ghost", content: "hi" })).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws FORBIDDEN when user is not the author", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-2" })
+    await expect(createCaller(ctx).edit({ id: "post-1", content: "hi" })).rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("throws UNAUTHORIZED when not logged in", async () => {
+    await expect(createCaller(makeCtx(null)).edit({ id: "post-1", content: "hi" })).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+// ─── getComments sort ─────────────────────────────────────────────────────────
+
+describe("postRouter.getComments sort", () => {
+  function mockComment(id: string) {
+    return {
+      id,
+      content: "test comment",
+      postId: "post-1",
+      parentId: null,
+      authorId: "user-1",
+      createdAt: new Date(),
+      author: { id: "user-1", name: "Test", username: "testuser", avatarUrl: null },
+      _count: { likes: 0, replies: 0 },
+      likes: [],
+    }
+  }
+
+  it("returns comments in oldest order by default", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([mockComment("c1")])
+    const result = await createCaller(ctx).getComments({ postId: "post-1" })
+    expect(result.comments).toHaveLength(1)
+    const callArgs = (ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(callArgs.orderBy).toEqual({ createdAt: "asc" })
+  })
+
+  it("orders by newest when sort=newest", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([mockComment("c1")])
+    await createCaller(ctx).getComments({ postId: "post-1", sort: "newest" })
+    const callArgs = (ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(callArgs.orderBy).toEqual({ createdAt: "desc" })
+  })
+
+  it("orders by likes when sort=top", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([mockComment("c1")])
+    await createCaller(ctx).getComments({ postId: "post-1", sort: "top" })
+    const callArgs = (ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(callArgs.orderBy).toEqual({ likes: { _count: "desc" } })
+  })
+})

@@ -31,6 +31,7 @@ function makeCtx(sessionUserId?: string): Context {
       create: vi.fn(),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    $queryRaw: vi.fn().mockResolvedValue([]),
   } as unknown as Context["db"]
 
   return {
@@ -322,5 +323,75 @@ describe("userRouter.getMutualFollowers", () => {
     const result = await createCaller(ctx).getMutualFollowers({ targetUserId: "user-2" })
     expect(result).toEqual([])
     expect(ctx.db.user.findMany).not.toHaveBeenCalled()
+  })
+})
+
+// ─── getProfileScore ──────────────────────────────────────────────────────────
+
+describe("userRouter.getProfileScore", () => {
+  function makeFullUser(overrides = {}) {
+    return {
+      bio: "Hello I am Alice",
+      avatarUrl: "https://example.com/avatar.jpg",
+      coverUrl: "https://example.com/cover.jpg",
+      location: "New York",
+      website: "https://alice.dev",
+      experiences: [{ id: "exp-1" }],
+      educations: [{ id: "edu-1" }],
+      skills: [{ id: "skill-1" }],
+      bookEntries: [{ id: "book-1" }],
+      movieEntries: [{ id: "movie-1" }],
+      places: [{ id: "place-1" }],
+      goals: [{ id: "goal-1" }],
+      ...overrides,
+    }
+  }
+
+  it("returns 100 score for a fully completed profile", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeFullUser())
+    const result = await createCaller(ctx).getProfileScore()
+    expect(result.score).toBe(100)
+    expect(result.checks.every((c) => c.done)).toBe(true)
+  })
+
+  it("returns 0 score for an empty profile", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeFullUser({
+      bio: null, avatarUrl: null, coverUrl: null, location: null, website: null,
+      experiences: [], educations: [], skills: [], bookEntries: [], movieEntries: [], places: [], goals: [],
+    }))
+    const result = await createCaller(ctx).getProfileScore()
+    expect(result.score).toBe(0)
+    expect(result.checks.every((c) => !c.done)).toBe(true)
+  })
+
+  it("returns partial score with correct check labels", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(makeFullUser({
+      bio: "I have a bio",
+      avatarUrl: "https://example.com/avatar.jpg",
+      coverUrl: null,
+      location: null,
+      website: null,
+      experiences: [],
+      educations: [],
+      skills: [],
+      bookEntries: [],
+      movieEntries: [],
+      places: [],
+      goals: [],
+    }))
+    const result = await createCaller(ctx).getProfileScore()
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.score).toBeLessThan(100)
+    const bioCheck = result.checks.find((c) => c.label === "Bio")
+    expect(bioCheck?.done).toBe(true)
+    const coverCheck = result.checks.find((c) => c.label === "Cover photo")
+    expect(coverCheck?.done).toBe(false)
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx()).getProfileScore()).rejects.toMatchObject({ code: "UNAUTHORIZED" })
   })
 })

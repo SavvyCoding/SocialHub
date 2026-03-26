@@ -376,6 +376,24 @@ export const postRouter = router({
       return { count: createdIds.length, rootPostId: createdIds[0] ?? null }
     }),
 
+  edit: authedProcedure
+    .input(z.object({
+      id: z.string(),
+      content: z.string().min(1).max(2000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const post = await ctx.db.post.findUnique({ where: { id: input.id }, select: { authorId: true } })
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Post not found" })
+      if (post.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "You can only edit your own posts" })
+
+      return ctx.db.post.update({
+        where: { id: input.id },
+        data: { content: input.content },
+        select: { id: true, content: true, updatedAt: true },
+      })
+    }),
+
   delete: authedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -588,9 +606,15 @@ export const postRouter = router({
       parentId: z.string().nullish(),
       cursor: z.string().optional(),
       limit: z.number().min(1).max(50).default(20),
+      sort: z.enum(["newest", "oldest", "top"]).default("oldest"),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
+      const orderBy =
+        input.sort === "newest" ? { createdAt: "desc" as const }
+        : input.sort === "top"  ? { likes: { _count: "desc" as const } }
+        : { createdAt: "asc" as const }
+
       const comments = await ctx.db.comment.findMany({
         where: {
           postId: input.postId,
@@ -601,7 +625,7 @@ export const postRouter = router({
           _count: { select: { likes: true, replies: true } },
           likes: { where: { userId }, select: { id: true }, take: 1 },
         },
-        orderBy: { createdAt: "asc" },
+        orderBy,
         take: input.limit + 1,
         cursor: input.cursor ? { id: input.cursor } : undefined,
       })

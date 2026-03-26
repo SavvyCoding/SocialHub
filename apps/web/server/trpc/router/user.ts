@@ -225,6 +225,46 @@ export const userRouter = router({
       })
     }),
 
+  getProfileScore: authedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    const user = await ctx.db.user.findUnique({
+      where: { id: userId },
+      select: {
+        bio: true,
+        avatarUrl: true,
+        coverUrl: true,
+        location: true,
+        website: true,
+        experiences: { select: { id: true }, take: 1 },
+        educations:  { select: { id: true }, take: 1 },
+        skills:      { select: { id: true }, take: 1 },
+        bookEntries: { select: { id: true }, take: 1 },
+        movieEntries:{ select: { id: true }, take: 1 },
+        places:      { select: { id: true }, take: 1 },
+        goals:       { select: { id: true }, take: 1 },
+      },
+    })
+    if (!user) throw new TRPCError({ code: "NOT_FOUND" })
+
+    const checks = [
+      { label: "Bio",          done: !!user.bio },
+      { label: "Avatar",       done: !!user.avatarUrl },
+      { label: "Cover photo",  done: !!user.coverUrl },
+      { label: "Location",     done: !!user.location },
+      { label: "Website",      done: !!user.website },
+      { label: "Experience",   done: user.experiences.length > 0 },
+      { label: "Education",    done: user.educations.length > 0 },
+      { label: "Skills",       done: user.skills.length > 0 },
+      { label: "Books",        done: user.bookEntries.length > 0 },
+      { label: "Movies",       done: user.movieEntries.length > 0 },
+      { label: "Places",       done: user.places.length > 0 },
+      { label: "Goals",        done: user.goals.length > 0 },
+    ]
+
+    const score = Math.round((checks.filter((c) => c.done).length / checks.length) * 100)
+    return { score, checks }
+  }),
+
   getActivityHeatmap: publicProcedure
     .input(z.object({ userId: z.string(), days: z.number().default(365) }))
     .query(async ({ ctx, input }) => {
