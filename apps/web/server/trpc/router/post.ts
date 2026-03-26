@@ -50,6 +50,7 @@ export const postRouter = router({
         authorId: { in: [userId, ...followingIds], notIn: excludedIds },
         parentPostId: null,
         isPublished: true,
+        isDraft: false,
         ...keywordFilter,
       },
       include: {
@@ -288,6 +289,7 @@ export const postRouter = router({
         isPublished: !isScheduled,
         scheduledAt: input.scheduledAt ?? null,
         originalPostId: input.quotedPostId ?? null,
+        hasSensitiveContent: input.hasSensitiveContent ?? false,
         hashtags: hashtags.length > 0
           ? {
               create: hashtags.map((name) => ({
@@ -869,4 +871,117 @@ export const postRouter = router({
 
     return activities
   }),
+
+  // ─── Phase 1: Post Drafts ────────────────────────────────────────────────────
+
+  saveDraft: authedProcedure
+    .input(z.object({
+      content: z.string().max(2000).optional(),
+      mediaUrls: z.array(z.string().url()).max(4).optional(),
+      visibility: z.enum(["PUBLIC", "FOLLOWERS", "PRIVATE"]).default("PUBLIC"),
+      existingDraftId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      if (input.existingDraftId) {
+        const draft = await ctx.db.post.findUnique({ where: { id: input.existingDraftId }, select: { authorId: true, isDraft: true } })
+        if (!draft || draft.authorId !== userId || !draft.isDraft) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found" })
+        }
+        return ctx.db.post.update({
+          where: { id: input.existingDraftId },
+          data: { content: input.content ?? null, mediaUrls: input.mediaUrls ?? [], visibility: input.visibility },
+          select: { id: true, content: true, isDraft: true, createdAt: true, updatedAt: true },
+        })
+      }
+      return ctx.db.post.create({
+        data: {
+          authorId: userId,
+          content: input.content ?? null,
+          mediaUrls: input.mediaUrls ?? [],
+          visibility: input.visibility,
+          isDraft: true,
+          isPublished: false,
+        },
+        select: { id: true, content: true, isDraft: true, createdAt: true, updatedAt: true },
+      })
+    }),
+
+  getDrafts: authedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id
+    return ctx.db.post.findMany({
+      where: { authorId: userId, isDraft: true },
+      select: { id: true, content: true, mediaUrls: true, visibility: true, createdAt: true, updatedAt: true },
+      orderBy: { updatedAt: "desc" },
+    })
+  }),
+
+  publishDraft: authedProcedure
+    .input(z.object({ draftId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const draft = await ctx.db.post.findUnique({ where: { id: input.draftId }, select: { authorId: true, isDraft: true } })
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found" })
+      if (draft.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN" })
+      if (!draft.isDraft) throw new TRPCError({ code: "BAD_REQUEST", message: "Post is not a draft" })
+
+      const post = await ctx.db.post.update({
+        where: { id: input.draftId },
+        data: { isDraft: false, isPublished: true },
+        include: { author: { select: authorSelect }, _count: { select: countSelect } },
+      })
+      eventBus.emit("post.created", { postId: post.id, authorId: userId, mentionedUserIds: [] })
+      return { ...post, isLiked: false, isShared: false, isBookmarked: false, parentPost: null }
+    }),
+
+  deleteDraft: authedProcedure
+    .input(z.object({ draftId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const draft = await ctx.db.post.findUnique({ where: { id: input.draftId }, select: { authorId: true, isDraft: true } })
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found" })
+      if (draft.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN" })
+      if (!draft.isDraft) throw new TRPCError({ code: "BAD_REQUEST", message: "Post is not a draft" })
+      await ctx.db.post.delete({ where: { id: input.draftId } })
+      return { success: true }
+    }),
+
+  // ─── Phase 1: Comment Pinning ─────────────────────────────────────────────────
+
+  pinComment: authedProcedure
+    .input(z.object({ commentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const comment = await ctx.db.comment.findUnique({
+        where: { id: input.commentId },
+        select: { postId: true, isPinned: true },
+      })
+      if (!comment) throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" })
+      const post = await ctx.db.post.findUnique({ where: { id: comment.postId }, select: { authorId: true } })
+      if (!post || post.authorId !== userId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the post author can pin comments" })
+      }
+      // Unpin any existing pinned comment on this post
+      await ctx.db.comment.updateMany({ where: { postId: comment.postId, isPinned: true }, data: { isPinned: false } })
+      if (comment.isPinned) return { pinned: false }
+      await ctx.db.comment.update({ where: { id: input.commentId }, data: { isPinned: true } })
+      return { pinned: true }
+    }),
+
+  unpinComment: authedProcedure
+    .input(z.object({ commentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const comment = await ctx.db.comment.findUnique({
+        where: { id: input.commentId },
+        select: { postId: true, isPinned: true },
+      })
+      if (!comment) throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" })
+      const post = await ctx.db.post.findUnique({ where: { id: comment.postId }, select: { authorId: true } })
+      if (!post || post.authorId !== userId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the post author can unpin comments" })
+      }
+      await ctx.db.comment.update({ where: { id: input.commentId }, data: { isPinned: false } })
+      return { pinned: false }
+    }),
 })

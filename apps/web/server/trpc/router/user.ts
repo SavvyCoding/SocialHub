@@ -283,4 +283,32 @@ export const userRouter = router({
 
       return result.map((r) => ({ date: r.date, count: Number(r.count) }))
     }),
+
+  // ─── Phase 1: Profile View Counter ───────────────────────────────────────────
+
+  recordProfileView: authedProcedure
+    .input(z.object({ profileUserId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const viewerId = ctx.session.user.id
+      // Don't count self-views
+      if (viewerId === input.profileUserId) return { success: true }
+      const key = `profile:views:${input.profileUserId}:${viewerId}`
+      const alreadyCounted = await ctx.redis.get(key)
+      if (!alreadyCounted) {
+        await ctx.db.user.update({
+          where: { id: input.profileUserId },
+          data: { profileViews: { increment: 1 } },
+        })
+        await ctx.redis.setex(key, 3600, "1")
+      }
+      return { success: true }
+    }),
+
+  getProfileViews: authedProcedure.query(async ({ ctx }) => {
+    const user = await ctx.db.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { profileViews: true },
+    })
+    return { profileViews: user?.profileViews ?? 0 }
+  }),
 })

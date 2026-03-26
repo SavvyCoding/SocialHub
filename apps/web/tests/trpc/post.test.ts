@@ -52,6 +52,7 @@ function mockPost(overrides = {}) {
     scheduledAt: null,
     viewCount: 0,
     isPinned: false,
+    isDraft: false,
     pinnedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -102,6 +103,8 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
       findUnique: vi.fn().mockResolvedValue(null),
       delete: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     pollVote: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -666,5 +669,137 @@ describe("postRouter.getComments sort", () => {
     await createCaller(ctx).getComments({ postId: "post-1", sort: "top" })
     const callArgs = (ctx.db.comment.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(callArgs.orderBy).toEqual({ likes: { _count: "desc" } })
+  })
+})
+
+// ─── Phase 1: Post Drafts ─────────────────────────────────────────────────────
+
+describe("postRouter.saveDraft", () => {
+  it("creates a new draft post", async () => {
+    const ctx = makeCtx()
+    const draft = { id: "draft-1", content: "Draft text", isDraft: true, createdAt: new Date(), updatedAt: new Date() }
+    ;(ctx.db.post.create as ReturnType<typeof vi.fn>).mockResolvedValue(draft)
+
+    const result = await createCaller(ctx).saveDraft({ content: "Draft text" })
+    expect(result.isDraft).toBe(true)
+    expect(ctx.db.post.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isDraft: true, isPublished: false }) })
+    )
+  })
+
+  it("updates an existing draft when existingDraftId is provided", async () => {
+    const ctx = makeCtx()
+    const existingDraft = { id: "draft-1", authorId: "user-1", isDraft: true }
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(existingDraft)
+    const updated = { id: "draft-1", content: "Updated", isDraft: true, createdAt: new Date(), updatedAt: new Date() }
+    ;(ctx.db.post.update as ReturnType<typeof vi.fn>).mockResolvedValue(updated)
+
+    const result = await createCaller(ctx).saveDraft({ content: "Updated", existingDraftId: "draft-1" })
+    expect(result.content).toBe("Updated")
+    expect(ctx.db.post.update).toHaveBeenCalled()
+  })
+
+  it("throws NOT_FOUND when updating a draft that belongs to another user", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "draft-1", authorId: "other-user", isDraft: true })
+    await expect(createCaller(ctx).saveDraft({ content: "x", existingDraftId: "draft-1" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx(null)).saveDraft({ content: "x" }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+describe("postRouter.getDrafts", () => {
+  it("returns the user's drafts", async () => {
+    const ctx = makeCtx()
+    const drafts = [{ id: "draft-1", content: "d1", mediaUrls: [], visibility: "PUBLIC", createdAt: new Date(), updatedAt: new Date() }]
+    ;(ctx.db.post.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(drafts)
+    const result = await createCaller(ctx).getDrafts()
+    expect(result).toHaveLength(1)
+    const callArgs = (ctx.db.post.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(callArgs.where).toMatchObject({ isDraft: true })
+  })
+})
+
+describe("postRouter.publishDraft", () => {
+  it("publishes a draft post", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1", isDraft: true })
+    const published = mockPost({ id: "draft-1", isDraft: false, isPublished: true })
+    ;(ctx.db.post.update as ReturnType<typeof vi.fn>).mockResolvedValue(published)
+
+    const result = await createCaller(ctx).publishDraft({ draftId: "draft-1" })
+    expect(result.isPublished).toBe(true)
+    expect(ctx.db.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isDraft: false, isPublished: true }) })
+    )
+  })
+
+  it("throws NOT_FOUND when draft does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).publishDraft({ draftId: "ghost" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws FORBIDDEN when publishing another user's draft", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "other-user", isDraft: true })
+    await expect(createCaller(ctx).publishDraft({ draftId: "draft-1" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("throws BAD_REQUEST when post is not a draft", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1", isDraft: false })
+    await expect(createCaller(ctx).publishDraft({ draftId: "post-1" }))
+      .rejects.toMatchObject({ code: "BAD_REQUEST" })
+  })
+})
+
+// ─── Phase 1: Comment Pinning ─────────────────────────────────────────────────
+
+describe("postRouter.pinComment", () => {
+  it("pins a comment and unpins existing pinned comments", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ postId: "post-1", isPinned: false })
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+
+    const result = await createCaller(ctx).pinComment({ commentId: "comment-1" })
+    expect(result.pinned).toBe(true)
+    expect(ctx.db.comment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ postId: "post-1", isPinned: true }) })
+    )
+    expect(ctx.db.comment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { isPinned: true } })
+    )
+  })
+
+  it("unpins when pinning an already-pinned comment", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ postId: "post-1", isPinned: true })
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+
+    const result = await createCaller(ctx).pinComment({ commentId: "comment-1" })
+    expect(result.pinned).toBe(false)
+    expect(ctx.db.comment.update).not.toHaveBeenCalled()
+  })
+
+  it("throws FORBIDDEN when user is not the post author", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ postId: "post-1", isPinned: false })
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "other-user" })
+    await expect(createCaller(ctx).pinComment({ commentId: "comment-1" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("throws NOT_FOUND when comment does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).pinComment({ commentId: "ghost" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
   })
 })

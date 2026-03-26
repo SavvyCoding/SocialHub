@@ -27,6 +27,7 @@ model User {
   location      String?
   website       String?
   isVerified    Boolean   @default(false)
+  profileViews  Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -77,6 +78,12 @@ model User {
 
   // Muted keywords
   mutedKeywords MutedKeyword[]
+
+  // Notification preferences
+  notificationPreferences NotificationPreference[]
+
+  // Saved searches
+  savedSearches SavedSearch[]
 
   @@map("users")
 }
@@ -174,8 +181,10 @@ model Post {
   mediaUrls  String[]
   mediaTypes MediaType[]
   visibility Visibility  @default(PUBLIC)
-  viewCount   Int         @default(0)
-  isPinned    Boolean     @default(false)
+  viewCount           Int         @default(0)
+  isPinned            Boolean     @default(false)
+  isDraft             Boolean     @default(false)
+  hasSensitiveContent Boolean     @default(false)
   pinnedAt    DateTime?
   scheduledAt DateTime?
   isPublished Boolean     @default(true)
@@ -212,6 +221,7 @@ model Comment {
   authorId  String
   content   String
   parentId  String?
+  isPinned  Boolean  @default(false)
   createdAt DateTime @default(now())
 
   post    Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -758,6 +768,43 @@ model Embedding {
 enum EmbeddingEntityType {
   POST
   USER
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATION PREFERENCES
+// ─────────────────────────────────────────
+
+model NotificationPreference {
+  id               String           @id @default(cuid())
+  userId           String
+  notificationType NotificationType
+  enabled          Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationType])
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+// ─────────────────────────────────────────
+// SAVED SEARCHES
+// ─────────────────────────────────────────
+
+model SavedSearch {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  query     String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, query])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("saved_searches")
 }
 
 // ─────────────────────────────────────────

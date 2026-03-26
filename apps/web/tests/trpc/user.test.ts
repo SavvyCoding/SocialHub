@@ -36,7 +36,11 @@ function makeCtx(sessionUserId?: string): Context {
 
   return {
     db,
-    redis: {} as Context["redis"],
+    redis: {
+      get: vi.fn().mockResolvedValue(null),
+      setex: vi.fn().mockResolvedValue("OK"),
+      del: vi.fn().mockResolvedValue(1),
+    } as unknown as Context["redis"],
     session: sessionUserId
       ? {
           user: { id: sessionUserId, name: "Test User", email: "test@example.com" },
@@ -393,5 +397,56 @@ describe("userRouter.getProfileScore", () => {
 
   it("throws UNAUTHORIZED when unauthenticated", async () => {
     await expect(createCaller(makeCtx()).getProfileScore()).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+// ─── Phase 1: Profile View Counter ───────────────────────────────────────────
+
+describe("userRouter.recordProfileView", () => {
+  it("increments profileViews for another user's profile", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({ profileViews: 1 })
+
+    const result = await createCaller(ctx).recordProfileView({ profileUserId: "user-2" })
+    expect(result.success).toBe(true)
+    expect(ctx.db.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { profileViews: { increment: 1 } } })
+    )
+  })
+
+  it("does not count self-views", async () => {
+    const ctx = makeCtx("user-1")
+    const result = await createCaller(ctx).recordProfileView({ profileUserId: "user-1" })
+    expect(result.success).toBe(true)
+    expect(ctx.db.user.update).not.toHaveBeenCalled()
+  })
+
+  it("does not increment when already viewed in the last hour", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.redis.get as ReturnType<typeof vi.fn>).mockResolvedValue("1")
+    const result = await createCaller(ctx).recordProfileView({ profileUserId: "user-2" })
+    expect(result.success).toBe(true)
+    expect(ctx.db.user.update).not.toHaveBeenCalled()
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx()).recordProfileView({ profileUserId: "user-2" }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+describe("userRouter.getProfileViews", () => {
+  it("returns the authenticated user's profile view count", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ profileViews: 42 })
+    const result = await createCaller(ctx).getProfileViews()
+    expect(result.profileViews).toBe(42)
+  })
+
+  it("returns 0 when user not found", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    const result = await createCaller(ctx).getProfileViews()
+    expect(result.profileViews).toBe(0)
   })
 })
