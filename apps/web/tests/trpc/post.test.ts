@@ -117,7 +117,15 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
     mutedKeyword: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    user: { findMany: vi.fn().mockResolvedValue([]) },
+    user: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue({ feedAlgorithm: "CHRONOLOGICAL" }),
+      update: vi.fn().mockResolvedValue({}),
+    },
+    linkPreview: {
+      upsert: vi.fn().mockResolvedValue({ id: "lp-1", postId: "post-1", url: "https://example.com" }),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn().mockImplementation((ops: unknown[]) => Promise.all(ops)),
   } as unknown as Context["db"]
 
@@ -838,5 +846,84 @@ describe("postRouter.updateBookmarkFolder", () => {
   it("throws UNAUTHORIZED when unauthenticated", async () => {
     await expect(createCaller(makeCtx(null)).updateBookmarkFolder({ postId: "p1", folder: "x" }))
       .rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+// ─── Phase 3: Link Previews ───────────────────────────────────────────────────
+
+describe("postRouter.storeLinkPreview", () => {
+  it("stores a link preview for an owned post", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+    const preview = { id: "lp-1", postId: "post-1", userId: "user-1", url: "https://example.com", title: "Example" }
+    ;(ctx.db.linkPreview.upsert as ReturnType<typeof vi.fn>).mockResolvedValue(preview)
+
+    const result = await createCaller(ctx).storeLinkPreview({ postId: "post-1", url: "https://example.com", title: "Example" })
+    expect(result.url).toBe("https://example.com")
+    expect(ctx.db.linkPreview.upsert).toHaveBeenCalled()
+  })
+
+  it("throws FORBIDDEN when user is not the post author", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "other-user" })
+    await expect(createCaller(ctx).storeLinkPreview({ postId: "post-1", url: "https://example.com" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("throws NOT_FOUND when post does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).storeLinkPreview({ postId: "ghost", url: "https://example.com" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+})
+
+describe("postRouter.getLinkPreview", () => {
+  it("returns the link preview for a post", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.linkPreview.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "lp-1", url: "https://example.com" })
+    const result = await createCaller(ctx).getLinkPreview({ postId: "post-1" })
+    expect(result?.url).toBe("https://example.com")
+  })
+
+  it("returns null when no link preview exists", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.linkPreview.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    const result = await createCaller(ctx).getLinkPreview({ postId: "post-1" })
+    expect(result).toBeNull()
+  })
+})
+
+// ─── Phase 3: Feed Algorithm ──────────────────────────────────────────────────
+
+describe("postRouter.setFeedAlgorithm", () => {
+  it("updates the user feed algorithm preference", async () => {
+    const ctx = makeCtx()
+    const result = await createCaller(ctx).setFeedAlgorithm({ algorithm: "ENGAGEMENT" })
+    expect(result.algorithm).toBe("ENGAGEMENT")
+    expect(ctx.db.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { feedAlgorithm: "ENGAGEMENT" } })
+    )
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx(null)).setFeedAlgorithm({ algorithm: "MIXED" }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+describe("postRouter.getFeedAlgorithm", () => {
+  it("returns the current feed algorithm preference", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ feedAlgorithm: "MIXED" })
+    const result = await createCaller(ctx).getFeedAlgorithm()
+    expect(result.algorithm).toBe("MIXED")
+  })
+
+  it("defaults to CHRONOLOGICAL when user not found", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    const result = await createCaller(ctx).getFeedAlgorithm()
+    expect(result.algorithm).toBe("CHRONOLOGICAL")
   })
 })

@@ -35,15 +35,24 @@ export const postRouter = router({
     const userId = ctx.session.user.id
     await RATE_LIMITS.readFeed(userId)
 
-    const [followingIds, excludedIds, mutedKeywords] = await Promise.all([
+    const [followingIds, excludedIds, mutedKeywords, me] = await Promise.all([
       getFollowingIds(ctx.db, ctx.redis, userId),
       getExcludedUserIds(ctx.db, ctx.redis, userId),
       ctx.db.mutedKeyword.findMany({ where: { userId }, select: { keyword: true } }),
+      ctx.db.user.findUnique({ where: { id: userId }, select: { feedAlgorithm: true } }),
     ])
 
+    const algorithm = me?.feedAlgorithm ?? "CHRONOLOGICAL"
     const keywordFilter = mutedKeywords.length > 0
       ? { NOT: { OR: mutedKeywords.map(({ keyword }) => ({ content: { contains: keyword, mode: "insensitive" as const } })) } }
       : {}
+
+    const orderBy =
+      algorithm === "ENGAGEMENT"
+        ? [{ likes: { _count: "desc" as const } }, { createdAt: "desc" as const }]
+        : algorithm === "MIXED"
+        ? [{ viewCount: "desc" as const }, { createdAt: "desc" as const }]
+        : { createdAt: "desc" as const }
 
     const posts = await ctx.db.post.findMany({
       where: {
@@ -59,7 +68,7 @@ export const postRouter = router({
         poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
         ...quotedPostInclude,
       },
-      orderBy: { createdAt: "desc" },
+      orderBy,
       take: limit + 1,
       cursor: cursor ? { id: cursor } : undefined,
     })
@@ -1056,4 +1065,71 @@ export const postRouter = router({
         nextCursor,
       }
     }),
+
+  // ─── Phase 3: Link Previews ───────────────────────────────────────────────────
+
+  storeLinkPreview: authedProcedure
+    .input(z.object({
+      postId: z.string(),
+      url: z.string().url(),
+      title: z.string().max(200).optional(),
+      description: z.string().max(500).optional(),
+      imageUrl: z.string().url().optional(),
+      siteName: z.string().max(100).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const post = await ctx.db.post.findUnique({ where: { id: input.postId }, select: { authorId: true } })
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Post not found" })
+      if (post.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Only the post author can store a link preview" })
+
+      const preview = await ctx.db.linkPreview.upsert({
+        where: { postId: input.postId },
+        create: {
+          postId: input.postId,
+          userId,
+          url: input.url,
+          title: input.title ?? null,
+          description: input.description ?? null,
+          imageUrl: input.imageUrl ?? null,
+          siteName: input.siteName ?? null,
+        },
+        update: {
+          url: input.url,
+          title: input.title ?? null,
+          description: input.description ?? null,
+          imageUrl: input.imageUrl ?? null,
+          siteName: input.siteName ?? null,
+        },
+      })
+      return preview
+    }),
+
+  getLinkPreview: authedProcedure
+    .input(z.object({ postId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.linkPreview.findUnique({ where: { postId: input.postId } })
+    }),
+
+  // ─── Phase 3: Feed Algorithm Preference ──────────────────────────────────────
+
+  setFeedAlgorithm: authedProcedure
+    .input(z.object({
+      algorithm: z.enum(["CHRONOLOGICAL", "ENGAGEMENT", "MIXED"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { feedAlgorithm: input.algorithm },
+      })
+      return { algorithm: input.algorithm }
+    }),
+
+  getFeedAlgorithm: authedProcedure.query(async ({ ctx }) => {
+    const user = await ctx.db.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { feedAlgorithm: true },
+    })
+    return { algorithm: user?.feedAlgorithm ?? "CHRONOLOGICAL" }
+  }),
 })
