@@ -538,6 +538,37 @@ export const postRouter = router({
       return { liked: true }
     }),
 
+  // ─── 2026-03-26: Comment Reactions ───────────────────────────────────────────
+
+  toggleCommentReaction: authedProcedure
+    .input(z.object({
+      commentId: z.string(),
+      reactionType: z.enum(["LIKE", "LOVE", "CELEBRATE", "INSIGHTFUL", "CURIOUS"]).default("LIKE"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const comment = await ctx.db.comment.findUnique({ where: { id: input.commentId }, select: { id: true } })
+      if (!comment) throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" })
+
+      const existing = await ctx.db.like.findUnique({
+        where: { userId_commentId: { userId, commentId: input.commentId } },
+        select: { reactionType: true },
+      })
+      if (existing) {
+        if (existing.reactionType === input.reactionType) {
+          await ctx.db.like.delete({ where: { userId_commentId: { userId, commentId: input.commentId } } })
+          return { reacted: false, reactionType: null }
+        }
+        await ctx.db.like.update({
+          where: { userId_commentId: { userId, commentId: input.commentId } },
+          data: { reactionType: input.reactionType },
+        })
+        return { reacted: true, reactionType: input.reactionType }
+      }
+      await ctx.db.like.create({ data: { userId, commentId: input.commentId, reactionType: input.reactionType } })
+      return { reacted: true, reactionType: input.reactionType }
+    }),
+
   // ─── Post search ─────────────────────────────────────────────────────────────
 
   search: authedProcedure
@@ -1132,4 +1163,162 @@ export const postRouter = router({
     })
     return { algorithm: user?.feedAlgorithm ?? "CHRONOLOGICAL" }
   }),
+
+  // ─── 2026-03-26: Post View Count ──────────────────────────────────────────────
+
+  getViewCount: publicProcedure
+    .input(z.object({ postId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const post = await ctx.db.post.findUnique({
+        where: { id: input.postId },
+        select: { viewCount: true },
+      })
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Post not found" })
+      return { viewCount: post.viewCount }
+    }),
+
+  // ─── 2026-03-26: Post Tags ────────────────────────────────────────────────────
+
+  addPostTags: authedProcedure
+    .input(z.object({
+      postId: z.string(),
+      tags: z.array(z.string().min(1).max(30).regex(/^[a-zA-Z0-9_-]+$/)).min(1).max(3),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const post = await ctx.db.post.findUnique({ where: { id: input.postId }, select: { authorId: true } })
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Post not found" })
+      if (post.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Only the post author can add tags" })
+
+      const tags = input.tags.map((t) => t.toLowerCase())
+      await ctx.db.postTag.createMany({
+        data: tags.map((tag) => ({ postId: input.postId, tag })),
+        skipDuplicates: true,
+      })
+      return { tags }
+    }),
+
+  removePostTag: authedProcedure
+    .input(z.object({ postId: z.string(), tag: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const post = await ctx.db.post.findUnique({ where: { id: input.postId }, select: { authorId: true } })
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Post not found" })
+      if (post.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Only the post author can remove tags" })
+
+      await ctx.db.postTag.deleteMany({
+        where: { postId: input.postId, tag: input.tag.toLowerCase() },
+      })
+      return { success: true }
+    }),
+
+  getPostsByTag: authedProcedure
+    .input(z.object({ tag: z.string().min(1), cursor: z.string().optional(), limit: z.number().min(1).max(50).default(20) }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const excludedIds = await getExcludedUserIds(ctx.db, ctx.redis, userId)
+
+      const posts = await ctx.db.post.findMany({
+        where: {
+          visibility: "PUBLIC",
+          isPublished: true,
+          authorId: { notIn: excludedIds },
+          tags: { some: { tag: input.tag.toLowerCase() } },
+        },
+        include: {
+          author: { select: authorSelect },
+          _count: { select: countSelect },
+          tags: { select: { tag: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+      })
+      let nextCursor: string | undefined
+      if (posts.length > input.limit) nextCursor = posts.pop()?.id
+
+      const interactions = await batchGetInteractions(ctx.db, userId, posts.map((p) => p.id))
+      return {
+        posts: posts.map((p) => ({
+          ...p,
+          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
+          parentPost: null,
+        })),
+        nextCursor,
+      }
+    }),
+
+  // ─── 2026-03-26: Trending Posts ───────────────────────────────────────────────
+
+  getTrending: authedProcedure
+    .input(z.object({ limit: z.number().min(1).max(50).default(20), cursor: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      await RATE_LIMITS.readFeed(userId)
+      const excludedIds = await getExcludedUserIds(ctx.db, ctx.redis, userId)
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+      // Get posts with high engagement in the last 24h
+      const posts = await ctx.db.post.findMany({
+        where: {
+          visibility: "PUBLIC",
+          parentPostId: null,
+          isPublished: true,
+          isDraft: false,
+          createdAt: { gte: since24h },
+          authorId: { notIn: excludedIds },
+        },
+        include: {
+          author: { select: authorSelect },
+          _count: { select: countSelect },
+          poll: { include: { options: { orderBy: { order: "asc" } }, votes: { where: { userId } } } },
+          ...quotedPostInclude,
+        },
+        orderBy: [
+          { likes: { _count: "desc" } },
+          { comments: { _count: "desc" } },
+          { createdAt: "desc" },
+        ],
+        take: input.limit + 1,
+        cursor: input.cursor ? { id: input.cursor } : undefined,
+      })
+      let nextCursor: string | undefined
+      if (posts.length > input.limit) nextCursor = posts.pop()?.id
+
+      const interactions = await batchGetInteractions(ctx.db, userId, posts.map((p) => p.id))
+      return {
+        posts: posts.map((p) => ({
+          ...p,
+          ...(interactions.get(p.id) ?? { isLiked: false, isShared: false, isBookmarked: false, reactionType: null }),
+          parentPost: null,
+        })),
+        nextCursor,
+      }
+    }),
+
+  // ─── 2026-03-26: Post Impressions ─────────────────────────────────────────────
+
+  recordImpression: authedProcedure
+    .input(z.object({ postId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const viewerId = ctx.session.user.id
+      await ctx.db.postImpression.upsert({
+        where: { postId_viewerId: { postId: input.postId, viewerId } },
+        create: { postId: input.postId, viewerId },
+        update: {},
+      })
+      return { success: true }
+    }),
+
+  getImpressions: authedProcedure
+    .input(z.object({ postId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const post = await ctx.db.post.findUnique({ where: { id: input.postId }, select: { authorId: true } })
+      if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Post not found" })
+      if (post.authorId !== userId) throw new TRPCError({ code: "FORBIDDEN", message: "Only the post author can view impressions" })
+
+      const count = await ctx.db.postImpression.count({ where: { postId: input.postId } })
+      return { impressionCount: count }
+    }),
 })

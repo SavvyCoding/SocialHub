@@ -126,6 +126,15 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
       upsert: vi.fn().mockResolvedValue({ id: "lp-1", postId: "post-1", url: "https://example.com" }),
       findUnique: vi.fn().mockResolvedValue(null),
     },
+    postTag: {
+      createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    postImpression: {
+      upsert: vi.fn().mockResolvedValue({}),
+      count: vi.fn().mockResolvedValue(0),
+    },
     $transaction: vi.fn().mockImplementation((ops: unknown[]) => Promise.all(ops)),
   } as unknown as Context["db"]
 
@@ -925,5 +934,204 @@ describe("postRouter.getFeedAlgorithm", () => {
     ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
     const result = await createCaller(ctx).getFeedAlgorithm()
     expect(result.algorithm).toBe("CHRONOLOGICAL")
+  })
+})
+
+// ─── 2026-03-26: Post View Count ──────────────────────────────────────────────
+
+describe("postRouter.getViewCount", () => {
+  it("returns the viewCount for a post", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ viewCount: 42 })
+    const result = await createCaller(ctx).getViewCount({ postId: "post-1" })
+    expect(result.viewCount).toBe(42)
+  })
+
+  it("throws NOT_FOUND when post does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(createCaller(ctx).getViewCount({ postId: "ghost" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+})
+
+// ─── 2026-03-26: Comment Reactions ───────────────────────────────────────────
+
+describe("postRouter.toggleCommentReaction", () => {
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(
+      createCaller(makeCtx(null)).toggleCommentReaction({ commentId: "c-1", reactionType: "LOVE" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("throws NOT_FOUND when comment does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(
+      createCaller(ctx).toggleCommentReaction({ commentId: "ghost" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("creates a LOVE reaction when none exists", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "c-1" })
+    ;(ctx.db.like.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    ;(ctx.db.like.create as ReturnType<typeof vi.fn>).mockResolvedValue({})
+
+    const result = await createCaller(ctx).toggleCommentReaction({ commentId: "c-1", reactionType: "LOVE" })
+    expect(result.reacted).toBe(true)
+    expect(result.reactionType).toBe("LOVE")
+  })
+
+  it("removes reaction when same reaction type is toggled again", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "c-1" })
+    ;(ctx.db.like.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ reactionType: "LOVE" })
+    ;(ctx.db.like.delete as ReturnType<typeof vi.fn>).mockResolvedValue({})
+
+    const result = await createCaller(ctx).toggleCommentReaction({ commentId: "c-1", reactionType: "LOVE" })
+    expect(result.reacted).toBe(false)
+    expect(result.reactionType).toBeNull()
+  })
+
+  it("updates reaction when different reaction type is provided", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.comment.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "c-1" })
+    ;(ctx.db.like.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ reactionType: "LIKE" })
+    ;(ctx.db.like.update as ReturnType<typeof vi.fn>).mockResolvedValue({})
+
+    const result = await createCaller(ctx).toggleCommentReaction({ commentId: "c-1", reactionType: "CELEBRATE" })
+    expect(result.reacted).toBe(true)
+    expect(result.reactionType).toBe("CELEBRATE")
+  })
+})
+
+// ─── 2026-03-26: Post Tags ────────────────────────────────────────────────────
+
+describe("postRouter.addPostTags", () => {
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(
+      createCaller(makeCtx(null)).addPostTags({ postId: "post-1", tags: ["tech"] })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("throws NOT_FOUND when post does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(
+      createCaller(ctx).addPostTags({ postId: "ghost", tags: ["tech"] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws FORBIDDEN when user is not the author", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "other-user" })
+    await expect(
+      createCaller(ctx).addPostTags({ postId: "post-1", tags: ["tech"] })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("creates tags (lowercased) for an owned post", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+    ;(ctx.db.postTag.createMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 })
+
+    const result = await createCaller(ctx).addPostTags({ postId: "post-1", tags: ["Tech", "AI"] })
+    expect(result.tags).toEqual(["tech", "ai"])
+  })
+})
+
+describe("postRouter.removePostTag", () => {
+  it("throws NOT_FOUND when post does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(
+      createCaller(ctx).removePostTag({ postId: "ghost", tag: "tech" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("deletes the tag successfully for post author", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+    ;(ctx.db.postTag.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 })
+
+    const result = await createCaller(ctx).removePostTag({ postId: "post-1", tag: "tech" })
+    expect(result.success).toBe(true)
+  })
+})
+
+// ─── 2026-03-26: Trending Posts ───────────────────────────────────────────────
+
+describe("postRouter.getTrending", () => {
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx(null)).getTrending({})).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("returns trending posts sorted by engagement", async () => {
+    const ctx = makeCtx()
+    const posts = [mockPost({ id: "p-1" }), mockPost({ id: "p-2" })]
+    ;(ctx.db.post.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(posts)
+
+    const result = await createCaller(ctx).getTrending({ limit: 10 })
+    expect(result.posts).toHaveLength(2)
+  })
+
+  it("returns empty posts when none in last 24h", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([])
+
+    const result = await createCaller(ctx).getTrending({})
+    expect(result.posts).toEqual([])
+  })
+})
+
+// ─── 2026-03-26: Post Impressions ─────────────────────────────────────────────
+
+describe("postRouter.recordImpression", () => {
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(
+      createCaller(makeCtx(null)).recordImpression({ postId: "post-1" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("upserts an impression record for the viewer", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.postImpression.upsert as ReturnType<typeof vi.fn>).mockResolvedValue({})
+    const result = await createCaller(ctx).recordImpression({ postId: "post-1" })
+    expect(result.success).toBe(true)
+    expect(ctx.db.postImpression.upsert).toHaveBeenCalled()
+  })
+})
+
+describe("postRouter.getImpressions", () => {
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(
+      createCaller(makeCtx(null)).getImpressions({ postId: "post-1" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("throws NOT_FOUND when post does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(
+      createCaller(ctx).getImpressions({ postId: "ghost" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
+  })
+
+  it("throws FORBIDDEN when user is not the author", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "other-user" })
+    await expect(
+      createCaller(ctx).getImpressions({ postId: "post-1" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("returns impression count for the post author", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.post.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ authorId: "user-1" })
+    ;(ctx.db.postImpression.count as ReturnType<typeof vi.fn>).mockResolvedValue(150)
+
+    const result = await createCaller(ctx).getImpressions({ postId: "post-1" })
+    expect(result.impressionCount).toBe(150)
   })
 })

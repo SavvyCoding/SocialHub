@@ -1,23 +1,23 @@
-# Daily Feature Plan — 2026-03-25
+# Daily Feature Plan — 2026-03-26
 
 ## Phase 1 (Simpler)
-1. Post Drafts — isDraft flag on Post; saveDraft / getDrafts / publishDraft procedures; drafts excluded from all feeds
-2. Comment Pinning — isPinned flag on Comment; pinComment / unpinComment mutations; pinned comment shown first
-3. Profile View Counter — profileViews counter on User; recordProfileView + getProfileViews; shown on profile page
+1. Post View Count Display — Show view count on each post card alongside likes/comments; increment on post detail view
+2. User Pronouns — Add pronouns field to user profile (stored on User model, shown on profile)
+3. Comment Reactions — Allow emoji reactions on comments (reuse existing ReactionType); show reaction counts on comments
 
 ## Phase 2 (Medium)
-4. Post Report System — PostReport model with reason enum + status; reportPost mutation + getMyReports query
-5. Mutual Followers — getMutualFollowers(username) returning users both parties follow in common (no schema change)
-6. Bookmark Folders — folder field on Bookmark; updateBookmarkFolder + getBookmarksByFolder procedures
+4. Post Tags / Topics — Allow posts to be tagged with up to 3 free-form topic tags; display on posts; filter feed by tag
+5. User Badge System — Award badges (EARLY_ADOPTER, POWER_USER, TOP_CONTRIBUTOR) stored per user; displayed on profile
+6. Trending Posts — Trending feed endpoint ranking posts by engagement velocity (likes + comments in last 24h)
 
 ## Phase 3 (Complex)
-7. Close Friends List — CloseFriend join model + CLOSE_FRIENDS Visibility enum value; add/remove/list close friends
-8. Feed Algorithm Preference — feedAlgorithm field on User (CHRONOLOGICAL / ENGAGEMENT / MIXED); getFeed respects it
-9. Link Preview Cards — LinkPreview model (url, title, description, imageUrl per post); storeLinkPreview + getLinkPreview
+7. Post Impressions Analytics — Track unique post impressions; author can query impression count for their posts
+8. Follower Milestones — Notify users when hitting follower milestones (10, 50, 100, 500, 1000); store milestone on user
+9. Content Warnings / Spoiler Tags — Posts can carry a content warning label; UI hides content behind "Show" toggle
 
 ---
 
 ## Implementation Status
-- Phase 1: PENDING
+- Phase 1: IN PROGRESS
 - Phase 2: PENDING
 - Phase 3: PENDING

@@ -20,7 +20,7 @@ function makeCtx(sessionUserId?: string): Context {
       findFirst: vi.fn().mockResolvedValue(null),
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn(),
-      update: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),
     },
     follow: {
@@ -30,6 +30,13 @@ function makeCtx(sessionUserId?: string): Context {
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    userBadge: {
+      findMany: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue({ id: "badge-1", userId: "user-1", badgeType: "EARLY_ADOPTER", awardedAt: new Date() }),
+    },
+    notification: {
+      create: vi.fn().mockResolvedValue({}),
     },
     $queryRaw: vi.fn().mockResolvedValue([]),
   } as unknown as Context["db"]
@@ -448,5 +455,122 @@ describe("userRouter.getProfileViews", () => {
     ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
     const result = await createCaller(ctx).getProfileViews()
     expect(result.profileViews).toBe(0)
+  })
+})
+
+// ─── 2026-03-26: User Pronouns ────────────────────────────────────────────────
+
+describe("userRouter.updateProfile — pronouns", () => {
+  it("updates pronouns field and returns it", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "user-1",
+      name: "Alice",
+      username: "alice",
+      bio: null,
+      avatarUrl: null,
+      coverUrl: null,
+      location: null,
+      website: null,
+      pronouns: "she/her",
+    })
+
+    const result = await createCaller(ctx).updateProfile({ pronouns: "she/her" })
+    expect((result as any).pronouns).toBe("she/her")
+  })
+
+  it("allows nulling out pronouns", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "user-1",
+      name: "Alice",
+      username: "alice",
+      bio: null,
+      avatarUrl: null,
+      coverUrl: null,
+      location: null,
+      website: null,
+      pronouns: null,
+    })
+
+    const result = await createCaller(ctx).updateProfile({ pronouns: null })
+    expect((result as any).pronouns).toBeNull()
+  })
+
+  it("throws UNAUTHORIZED when unauthenticated", async () => {
+    await expect(createCaller(makeCtx()).updateProfile({ pronouns: "they/them" }))
+      .rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+})
+
+// ─── 2026-03-26: User Badges ──────────────────────────────────────────────────
+
+describe("userRouter.getBadges", () => {
+  it("returns badges for a user", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.userBadge.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "b-1", userId: "user-1", badgeType: "EARLY_ADOPTER", awardedAt: new Date() },
+    ])
+
+    const result = await createCaller(ctx).getBadges({ userId: "user-1" })
+    expect(result).toHaveLength(1)
+    expect(result[0].badgeType).toBe("EARLY_ADOPTER")
+  })
+
+  it("returns empty array when user has no badges", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.userBadge.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    const result = await createCaller(ctx).getBadges({ userId: "user-2" })
+    expect(result).toEqual([])
+  })
+})
+
+describe("userRouter.awardBadge", () => {
+  it("throws UNAUTHORIZED when not logged in", async () => {
+    await expect(
+      createCaller(makeCtx()).awardBadge({ userId: "user-1", badgeType: "EARLY_ADOPTER" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" })
+  })
+
+  it("throws FORBIDDEN when awarding to another user", async () => {
+    const ctx = makeCtx("user-1")
+    await expect(
+      createCaller(ctx).awardBadge({ userId: "user-2", badgeType: "POWER_USER" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" })
+  })
+
+  it("upserts badge for self successfully", async () => {
+    const ctx = makeCtx("user-1")
+    const badge = { id: "b-1", userId: "user-1", badgeType: "EARLY_ADOPTER", awardedAt: new Date() }
+    ;(ctx.db.userBadge.upsert as ReturnType<typeof vi.fn>).mockResolvedValue(badge)
+
+    const result = await createCaller(ctx).awardBadge({ userId: "user-1", badgeType: "EARLY_ADOPTER" })
+    expect(result.badgeType).toBe("EARLY_ADOPTER")
+  })
+})
+
+// ─── 2026-03-26: Follower Milestones ─────────────────────────────────────────
+
+describe("userRouter.getFollowerMilestone", () => {
+  it("returns follower count and milestone info", async () => {
+    const ctx = makeCtx("user-1")
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      followerMilestones: 10,
+      _count: { receivedFollows: 55 },
+    })
+
+    const result = await createCaller(ctx).getFollowerMilestone({ userId: "user-1" })
+    expect(result.followerCount).toBe(55)
+    expect(result.achievedMilestones).toContain(10)
+    expect(result.achievedMilestones).toContain(50)
+    expect(result.nextMilestone).toBe(100)
+  })
+
+  it("throws NOT_FOUND when user does not exist", async () => {
+    const ctx = makeCtx()
+    ;(ctx.db.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+    await expect(
+      createCaller(ctx).getFollowerMilestone({ userId: "ghost" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" })
   })
 })

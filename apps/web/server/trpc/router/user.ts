@@ -41,6 +41,7 @@ export const userRouter = router({
           location: true,
           website: true,
           isVerified: true,
+          pronouns: true,
           createdAt: true,
           _count: {
             select: {
@@ -64,6 +65,7 @@ export const userRouter = router({
         website: z.string().url().optional().or(z.literal("")),
         avatarUrl: z.string().url().startsWith("https://").optional(),
         coverUrl: z.string().url().startsWith("https://").optional(),
+        pronouns: z.string().max(30).optional().nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -79,6 +81,7 @@ export const userRouter = router({
           coverUrl: true,
           location: true,
           website: true,
+          pronouns: true,
         },
       })
     }),
@@ -97,6 +100,7 @@ export const userRouter = router({
         location: true,
         website: true,
         isVerified: true,
+        pronouns: true,
         createdAt: true,
       },
     })
@@ -311,4 +315,79 @@ export const userRouter = router({
     })
     return { profileViews: user?.profileViews ?? 0 }
   }),
+
+  // ─── 2026-03-26: User Badges ──────────────────────────────────────────────────
+
+  getBadges: publicProcedure
+    .input(z.object({ userId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.userBadge.findMany({
+        where: { userId: input.userId },
+        orderBy: { awardedAt: "asc" },
+      })
+    }),
+
+  awardBadge: authedProcedure
+    .input(z.object({
+      userId: z.string(),
+      badgeType: z.enum(["EARLY_ADOPTER", "POWER_USER", "TOP_CONTRIBUTOR"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Only self-award supported for now (could be admin-only in production)
+      if (ctx.session.user.id !== input.userId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Cannot award badges to other users" })
+      }
+      return ctx.db.userBadge.upsert({
+        where: { userId_badgeType: { userId: input.userId, badgeType: input.badgeType } },
+        create: { userId: input.userId, badgeType: input.badgeType },
+        update: {},
+      })
+    }),
+
+  // ─── 2026-03-26: Follower Milestones ─────────────────────────────────────────
+
+  getFollowerMilestone: publicProcedure
+    .input(z.object({ userId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: input.userId },
+        select: { followerMilestones: true, _count: { select: { receivedFollows: true } } },
+      })
+      if (!user) throw new TRPCError({ code: "NOT_FOUND" })
+      const milestones = [10, 50, 100, 500, 1000]
+      const currentCount = user._count.receivedFollows
+      const achieved = milestones.filter((m) => currentCount >= m)
+      const next = milestones.find((m) => currentCount < m) ?? null
+      return { followerCount: currentCount, achievedMilestones: achieved, nextMilestone: next }
+    }),
+
+  checkAndNotifyFollowerMilestone: authedProcedure
+    .input(z.object({ targetUserId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: input.targetUserId },
+        select: { followerMilestones: true, _count: { select: { receivedFollows: true } } },
+      })
+      if (!user) return { notified: false }
+      const milestones = [10, 50, 100, 500, 1000]
+      const currentCount = user._count.receivedFollows
+      const newMilestone = milestones.find(
+        (m) => currentCount >= m && user.followerMilestones < m
+      )
+      if (newMilestone) {
+        await ctx.db.user.update({
+          where: { id: input.targetUserId },
+          data: { followerMilestones: newMilestone },
+        })
+        await ctx.db.notification.create({
+          data: {
+            recipientId: input.targetUserId,
+            type: "FOLLOW",
+            data: { milestone: newMilestone, message: `You reached ${newMilestone} followers!` },
+          },
+        })
+        return { notified: true, milestone: newMilestone }
+      }
+      return { notified: false }
+    }),
 })

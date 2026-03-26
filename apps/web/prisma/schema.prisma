@@ -29,6 +29,8 @@ model User {
   isVerified    Boolean   @default(false)
   profileViews  Int       @default(0)
   feedAlgorithm String    @default("CHRONOLOGICAL")
+  pronouns      String?
+  followerMilestones Int  @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -217,6 +219,8 @@ model Post {
   poll            Poll?
   collectionItems CollectionItem[]
   linkPreview     LinkPreview?
+  tags            PostTag[]
+  impressions     PostImpression[]
 
   @@index([authorId, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
@@ -943,4 +947,56 @@ model LinkPreview {
 
   @@index([userId])
   @@map("link_previews")
+}
+
+// ─────────────────────────────────────────
+// 2026-03-26: POST TAGS
+// ─────────────────────────────────────────
+
+model PostTag {
+  id     String @id @default(cuid())
+  postId String
+  tag    String
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, tag])
+  @@index([tag])
+  @@map("post_tags")
+}
+
+// ─────────────────────────────────────────
+// 2026-03-26: USER BADGES
+// ─────────────────────────────────────────
+
+model UserBadge {
+  id        String    @id @default(cuid())
+  userId    String
+  badgeType BadgeType
+  awardedAt DateTime  @default(now())
+
+  @@unique([userId, badgeType])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+enum BadgeType {
+  EARLY_ADOPTER
+  POWER_USER
+  TOP_CONTRIBUTOR
+}
+
+// ─────────────────────────────────────────
+// 2026-03-26: POST IMPRESSIONS
+// ─────────────────────────────────────────
+
+model PostImpression {
+  id        String   @id @default(cuid())
+  postId    String
+  viewerId  String
+  createdAt DateTime @default(now())
+
+  @@unique([postId, viewerId])
+  @@index([postId, createdAt(sort: Desc)])
+  @@map("post_impressions")
 }
