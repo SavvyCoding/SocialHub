@@ -106,7 +106,7 @@ export default function CollectionDetailPage({ params }: { params: Promise<{ id:
       ) : (
         <div className="rounded-xl border bg-card divide-y">
           {items.map((item, i) => (
-            <PostCard key={item.id} post={item.post as Parameters<typeof PostCard>[0]["post"]} style={{ animationDelay: `${Math.min(i, 5) * 50}ms` }} />
+            <PostCard key={item.id} post={item.post as unknown as Parameters<typeof PostCard>[0]["post"]} style={{ animationDelay: `${Math.min(i, 5) * 50}ms` }} />
           ))}
           {hasNextPage && (
             <div className="flex justify-center py-3">

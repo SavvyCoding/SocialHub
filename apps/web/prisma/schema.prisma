@@ -225,6 +225,7 @@ model Post {
   @@index([authorId, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@index([visibility, createdAt(sort: Desc)])
+  @@index([originalPostId])
   @@map("posts")
 }
 
@@ -995,6 +996,8 @@ model PostImpression {
   postId    String
   viewerId  String
   createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@unique([postId, viewerId])
   @@index([postId, createdAt(sort: Desc)])

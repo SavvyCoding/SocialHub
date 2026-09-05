@@ -59,6 +59,7 @@ const createHashtagCaller = createCallerFactory(hashtagRouter)
 
 function makeCtx(sessionUserId: string | null = "user-1"): Context {
   const db = {
+    mutedKeyword: { findMany: vi.fn().mockResolvedValue([]) },
     follow: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     block: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn(), deleteMany: vi.fn() },
     mute: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn(), deleteMany: vi.fn() },
@@ -86,7 +87,7 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
       del: vi.fn().mockResolvedValue(1),
     } as unknown as Context["redis"],
     session: sessionUserId
-      ? { user: { id: sessionUserId, name: "Test", email: "t@e.com" }, expires: new Date(Date.now() + 3_600_000).toISOString() }
+      ? { user: { id: sessionUserId, username: "testuser", name: "Test", email: "t@e.com" }, expires: new Date(Date.now() + 3_600_000).toISOString() }
       : null,
   }
 }

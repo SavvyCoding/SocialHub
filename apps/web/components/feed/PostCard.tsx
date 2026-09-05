@@ -284,11 +284,11 @@ export const PostCard = memo(function PostCard({ post, style }: PostCardProps) {
         setLikeCount((prev) => prev - 1)
       } else if (isLiked) {
         // Change reaction
-        setReactionType(rt)
+        setReactionType(rt ?? null)
       } else {
         // New like
         setIsLiked(true)
-        setReactionType(rt)
+        setReactionType(rt ?? null)
         setLikeCount((prev) => prev + 1)
       }
     },

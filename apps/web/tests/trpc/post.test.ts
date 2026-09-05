@@ -143,7 +143,7 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
     redis: { get: vi.fn().mockResolvedValue(null), setex: vi.fn().mockResolvedValue("OK"), del: vi.fn().mockResolvedValue(1) } as unknown as Context["redis"],
     session: sessionUserId
       ? {
-          user: { id: sessionUserId, name: "Test User", email: "test@example.com" },
+          user: { id: sessionUserId, username: "testuser", name: "Test User", email: "test@example.com" },
           expires: new Date(Date.now() + 3_600_000).toISOString(),
         }
       : null,

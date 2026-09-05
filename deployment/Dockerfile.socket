@@ -12,9 +12,11 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/socket-server/node_modules ./apps/socket-server/node_modules
 COPY apps/socket-server ./apps/socket-server
 
-RUN ./node_modules/.bin/tsc -p apps/socket-server/tsconfig.json
+# pnpm links each workspace package's binaries under that package, not the root
+RUN ./apps/socket-server/node_modules/.bin/tsc -p apps/socket-server/tsconfig.json
 
 # ── Stage 3: Production ──
 FROM node:22-alpine AS runner
@@ -27,11 +29,14 @@ RUN addgroup --system --gid 1001 appgroup && \
     adduser --system --uid 1001 appuser
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/apps/socket-server/dist ./dist
+COPY --from=deps /app/apps/socket-server/node_modules ./apps/socket-server/node_modules
+COPY apps/socket-server/package.json ./apps/socket-server/package.json
+COPY --from=builder /app/apps/socket-server/dist ./apps/socket-server/dist
 
 USER appuser
 EXPOSE 3001
 ENV PORT=3001
 
 ENTRYPOINT ["/sbin/tini", "--"]
+WORKDIR /app/apps/socket-server
 CMD ["node", "dist/index.js"]

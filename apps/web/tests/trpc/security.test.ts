@@ -51,6 +51,7 @@ const createBlockCaller = createCallerFactory(blockRouter)
 
 function makeCtx(sessionUserId: string | null = "user-1"): Context {
   const db = {
+    mutedKeyword: { findMany: vi.fn().mockResolvedValue([]) },
     follow: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
     block: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -114,7 +115,7 @@ function makeCtx(sessionUserId: string | null = "user-1"): Context {
     db,
     redis: { get: vi.fn().mockResolvedValue(null), setex: vi.fn().mockResolvedValue("OK"), del: vi.fn().mockResolvedValue(1) } as unknown as Context["redis"],
     session: sessionUserId
-      ? { user: { id: sessionUserId, name: "Test User", email: "test@example.com" }, expires: new Date(Date.now() + 3_600_000).toISOString() }
+      ? { user: { id: sessionUserId, username: "testuser", name: "Test User", email: "test@example.com" }, expires: new Date(Date.now() + 3_600_000).toISOString() }
       : null,
   }
 }
