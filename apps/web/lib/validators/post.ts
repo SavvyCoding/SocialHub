@@ -16,6 +16,7 @@ export const createPostSchema = z.object({
   poll: pollSchema.optional(),
   scheduledAt: z.date().optional(),
   quotedPostId: z.string().optional(),
+  hasSensitiveContent: z.boolean().default(false),
 }).refine(
   (data) =>
     (data.content && data.content.trim().length > 0) ||
