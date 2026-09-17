@@ -2,13 +2,13 @@ import * as React from "react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 
-interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {}
+type AvatarProps = React.HTMLAttributes<HTMLDivElement>
 interface AvatarImageProps {
   src: string
   alt: string
   className?: string
 }
-interface AvatarFallbackProps extends React.HTMLAttributes<HTMLDivElement> {}
+type AvatarFallbackProps = React.HTMLAttributes<HTMLDivElement>
 
 const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(({ className, children, ...props }, ref) => (
   <div

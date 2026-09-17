@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, type ComponentProps } from "react"
 import { TrendingUp } from "lucide-react"
 import { trpc } from "@/lib/trpc/client"
 import { PostCard } from "./PostCard"
@@ -71,7 +71,7 @@ export function TrendingFeedList() {
             {idx + 1}
           </span>
           <div className="pl-2">
-            <PostCard post={post as any} />
+            <PostCard post={post as ComponentProps<typeof PostCard>["post"]} />
           </div>
         </div>
       ))}
