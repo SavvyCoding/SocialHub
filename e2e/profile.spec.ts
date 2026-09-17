@@ -8,7 +8,7 @@ test.describe("Profile", () => {
 
   test("navigate to own profile", async ({ page }) => {
     await page.goto("/profile/alice")
-    await expect(page.getByText("alice")).toBeVisible()
+    await expect(page.getByText("@alice", { exact: true })).toBeVisible()
   })
 
   test("profile shows books tab link", async ({ page }) => {

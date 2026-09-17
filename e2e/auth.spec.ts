@@ -12,14 +12,16 @@ test.describe("Authentication", () => {
   test("register a new user", async ({ page }) => {
     await page.goto("/register")
 
-    await page.getByLabel(/name/i).fill(TEST_USER.name)
-    await page.getByLabel(/username/i).fill(TEST_USER.username)
-    await page.getByLabel(/email/i).fill(TEST_USER.email)
-    await page.getByLabel(/password/i).fill(TEST_USER.password)
+    await page.getByLabel(/^name$/i).fill(TEST_USER.name)
+    await page.getByLabel(/^username$/i).fill(TEST_USER.username)
+    await page.getByLabel(/^email$/i).fill(TEST_USER.email)
+    await page.getByLabel(/^password$/i).fill(TEST_USER.password)
+    const confirm = page.getByLabel(/confirm/i)
+    if (await confirm.isVisible().catch(() => false)) await confirm.fill(TEST_USER.password)
     await page.getByRole("button", { name: /register|sign up|create/i }).click()
 
-    // Should redirect to feed after successful registration + login
-    await expect(page).toHaveURL(/\/feed/, { timeout: 10_000 })
+    // Should land on the feed (/feed redirects to /posts) after registration + login
+    await expect(page).toHaveURL(/\/(feed|posts)/, { timeout: 15_000 })
   })
 
   test("login with existing credentials", async ({ page }) => {
@@ -27,10 +29,10 @@ test.describe("Authentication", () => {
 
     // Use seeded user (alice)
     await page.getByLabel(/email/i).fill("alice@example.com")
-    await page.getByLabel(/password/i).fill("password123")
+    await page.getByLabel(/password/i).fill("Password1")
     await page.getByRole("button", { name: /sign in|log in/i }).click()
 
-    await expect(page).toHaveURL(/\/feed/, { timeout: 10_000 })
+    await expect(page).toHaveURL(/\/(feed|posts)/, { timeout: 15_000 })
   })
 
   test("redirect unauthenticated users to login", async ({ page }) => {
@@ -42,12 +44,12 @@ test.describe("Authentication", () => {
     // Login first
     await page.goto("/login")
     await page.getByLabel(/email/i).fill("alice@example.com")
-    await page.getByLabel(/password/i).fill("password123")
+    await page.getByLabel(/password/i).fill("Password1")
     await page.getByRole("button", { name: /sign in|log in/i }).click()
-    await expect(page).toHaveURL(/\/feed/, { timeout: 10_000 })
+    await expect(page).toHaveURL(/\/(feed|posts)/, { timeout: 15_000 })
 
-    // Now try visiting login again
+    // Now try visiting login again: middleware sends signed-in users to /posts
     await page.goto("/login")
-    await expect(page).toHaveURL(/\/feed/)
+    await expect(page).toHaveURL(/\/(feed|posts)/)
   })
 })

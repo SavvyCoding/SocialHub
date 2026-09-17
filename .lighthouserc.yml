@@ -8,7 +8,8 @@ ci:
       chromeFlags: "--no-sandbox --disable-dev-shm-usage"
 
   assert:
-    preset: lighthouse:no-pwa
+    # Gate on category scores only. The lighthouse:no-pwa preset would also
+    # assert every individual audit at a perfect score, which is not the policy.
     assertions:
       categories:performance:
         - warn

@@ -19,7 +19,8 @@ export async function loginAsAlice(page: Page) {
   await page.getByLabel(/email/i).fill("alice@example.com")
   await page.getByLabel(/password/i).fill("Password1")
   await page.getByRole("button", { name: /sign in|log in/i }).click()
-  await page.waitForURL(/\/feed/, { timeout: 20_000 })
+  // Sign-in goes /login -> /feed -> /posts; wait until we have left the login page.
+  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 })
 }
 
 /** Login as Bob (seeded user) */
@@ -29,5 +30,6 @@ export async function loginAsBob(page: Page) {
   await page.getByLabel(/email/i).fill("bob@example.com")
   await page.getByLabel(/password/i).fill("Password1")
   await page.getByRole("button", { name: /sign in|log in/i }).click()
-  await page.waitForURL(/\/feed/, { timeout: 20_000 })
+  // Sign-in goes /login -> /feed -> /posts; wait until we have left the login page.
+  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 })
 }

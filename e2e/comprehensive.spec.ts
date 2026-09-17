@@ -115,7 +115,8 @@ test.describe("Profile — edit", () => {
     if (await editBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await editBtn.click()
       await page.waitForTimeout(500)
-      const modal = page.getByRole("dialog")
+      // EditProfileModal is a fixed overlay without a dialog role; assert on its heading
+      const modal = page.getByRole("heading", { name: /edit profile/i })
       await expect(modal).toBeVisible({ timeout: 5_000 })
       await page.keyboard.press("Escape")
     } else {
@@ -626,8 +627,8 @@ test.describe("Close Friends", () => {
   })
 
   test("close friends list accessible from settings or profile", async ({ page }) => {
-    // Try settings/close-friends or similar paths
-    await page.goto("http://localhost:3000/settings")
+    // There is no /settings route; look on the profile page
+    await page.goto("http://localhost:3000/profile/alice")
     await page.waitForTimeout(1_500)
     const closeFriendsLink = page.getByRole("link", { name: /close friends/i })
       .or(page.getByText(/close friends/i).first())
@@ -660,7 +661,8 @@ test.describe("Feed Algorithm Preference", () => {
   })
 
   test("feed algorithm preference toggle in settings if implemented", async ({ page }) => {
-    await page.goto("http://localhost:3000/settings")
+    // There is no /settings route; the preference lives on the feed page if surfaced
+    await page.goto("http://localhost:3000/posts")
     await page.waitForTimeout(2_000)
     const algoToggle = page.getByText(/algorithm|chronological|engagement/i).first()
     if (await algoToggle.isVisible({ timeout: 3_000 }).catch(() => false)) {

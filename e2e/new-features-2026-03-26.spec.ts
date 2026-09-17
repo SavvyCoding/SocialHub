@@ -360,25 +360,25 @@ test.describe("Showcase — comprehensive", () => {
   })
 
   test("books showcase page loads", async ({ page }) => {
-    await page.goto("http://localhost:3000/books")
+    await page.goto("http://localhost:3000/profile/alice/books")
     await page.waitForTimeout(2_000)
     await expect(page.getByRole("main")).toBeVisible()
   })
 
   test("movies showcase page loads", async ({ page }) => {
-    await page.goto("http://localhost:3000/movies")
+    await page.goto("http://localhost:3000/profile/alice/movies")
     await page.waitForTimeout(2_000)
     await expect(page.getByRole("main")).toBeVisible()
   })
 
   test("places showcase page loads", async ({ page }) => {
-    await page.goto("http://localhost:3000/places")
+    await page.goto("http://localhost:3000/profile/alice/places")
     await page.waitForTimeout(2_000)
     await expect(page.getByRole("main")).toBeVisible()
   })
 
   test("goals showcase page loads", async ({ page }) => {
-    await page.goto("http://localhost:3000/goals")
+    await page.goto("http://localhost:3000/profile/alice/goals")
     await page.waitForTimeout(2_000)
     await expect(page.getByRole("main")).toBeVisible()
   })
