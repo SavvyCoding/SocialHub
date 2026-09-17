@@ -50,7 +50,7 @@ pnpm db:seed                          # demo users alice/bob/carol@example.com, 
 pnpm dev                              # web on :3000, socket server on :3001
 ```
 
-Open http://localhost:3000 and sign in as one of the demo users. See [SETUP.md](SETUP.md) for OAuth, Cloudinary, TMDB and Mapbox configuration. Every external service is optional: the app runs without them and simply hides the features that need them.
+Open http://localhost:3000 and sign in as one of the demo users. See [SETUP.md](SETUP.md) for OAuth, Cloudinary, TMDB and Mapbox configuration. External services are optional for starting the app. Image upload, movie search and the travel map need their service configured before they work; everything else runs without them.
 
 ## Running with Docker
 

@@ -1,4 +1,4 @@
-# Setup Guide — Phase 1
+# Setup Guide
 
 ## Prerequisites
 
@@ -70,7 +70,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## OAuth Setup (optional for Phase 1)
+## OAuth Setup (optional)
 
 ### Google
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
