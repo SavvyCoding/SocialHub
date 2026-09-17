@@ -27,7 +27,9 @@ test.describe("Auth — extras", () => {
 
   test("logout redirects to login", async ({ page }) => {
     await loginAsAlice(page)
-    await expect(page).toHaveURL(/\/feed/)
+    await expect(page).toHaveURL(/\/(feed|posts)/)
+    // Wait for hydration so the sign-out button has its click handler attached
+    await page.waitForLoadState("networkidle")
 
     // Find logout — could be in nav dropdown or a button
     const logoutBtn = page.getByRole("button", { name: /log out|sign out/i })

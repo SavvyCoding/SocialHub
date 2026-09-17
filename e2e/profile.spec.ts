@@ -8,12 +8,14 @@ test.describe("Profile", () => {
 
   test("navigate to own profile", async ({ page }) => {
     await page.goto("/profile/alice")
-    await expect(page.getByText("@alice", { exact: true })).toBeVisible()
+    // The sidebar user chip also shows "@alice"; assert on the profile header inside <main>
+    await expect(page.getByRole("main").getByText("@alice", { exact: true })).toBeVisible()
   })
 
   test("profile shows books tab link", async ({ page }) => {
     await page.goto("/profile/alice")
-    const booksLink = page.getByRole("link", { name: /books/i })
+    // The sidebar has a Books link too; check the showcase card inside <main>
+    const booksLink = page.getByRole("main").getByRole("link", { name: /books/i })
     await expect(booksLink).toBeVisible()
   })
 
