@@ -63,7 +63,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
-        run: pnpm --filter web prisma generate
+        run: pnpm --filter web exec prisma generate
 
       - name: Type check
         run: pnpm typecheck
@@ -72,7 +72,7 @@ jobs:
         run: pnpm lint
 
       - name: Run Prisma migrations
-        run: pnpm --filter web prisma migrate deploy
+        run: pnpm --filter web exec prisma migrate deploy
 
       - name: Run unit tests
         run: pnpm test
@@ -138,11 +138,11 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Generate Prisma client
-        run: pnpm --filter web prisma generate
+        run: pnpm --filter web exec prisma generate
 
       - name: Run migrations & seed
         run: |
-          pnpm --filter web prisma migrate deploy
+          pnpm --filter web exec prisma migrate deploy
           pnpm db:seed
 
       - name: Build web app
@@ -233,8 +233,8 @@ jobs:
 
       - name: Generate Prisma client & migrate
         run: |
-          pnpm --filter web prisma generate
-          pnpm --filter web prisma migrate deploy
+          pnpm --filter web exec prisma generate
+          pnpm --filter web exec prisma migrate deploy
 
       - name: Build web app
         run: pnpm --filter web build
