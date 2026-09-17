@@ -19,7 +19,10 @@ CREATE INDEX IF NOT EXISTS "post_tags_tag_idx" ON "post_tags"("tag");
 ALTER TABLE "post_tags" ADD CONSTRAINT "post_tags_postId_fkey" FOREIGN KEY ("postId") REFERENCES "posts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- User Badges
-CREATE TYPE IF NOT EXISTS "BadgeType" AS ENUM ('EARLY_ADOPTER', 'POWER_USER', 'TOP_CONTRIBUTOR');
+DO $$ BEGIN
+    CREATE TYPE "BadgeType" AS ENUM ('EARLY_ADOPTER', 'POWER_USER', 'TOP_CONTRIBUTOR');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE TABLE IF NOT EXISTS "user_badges" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
