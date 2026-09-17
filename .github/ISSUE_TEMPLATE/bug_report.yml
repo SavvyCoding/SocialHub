@@ -1,0 +1,59 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Security issues should **not** be filed here; see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Sign in as alice@example.com
+        2. Go to /profile/alice/books
+        3. Click "Add a book" and search "Atomic Habits"
+        4. Observe ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Feed / posts / comments
+        - Showcase (books, movies, places, goals)
+        - Auth / accounts
+        - Messaging / notifications / real-time
+        - Search / recommendations
+        - Background jobs / worker
+        - Deployment / Docker
+        - CI / tooling
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: Output of `git rev-parse --short HEAD`, or the image tag you are running.
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        OS, browser, Node version, whether you run via `pnpm dev` or the Docker stack
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant server logs (`deployment/deploy.sh logs web`) or browser console output. Redact secrets.
+      render: shell

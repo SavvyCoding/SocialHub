@@ -1,0 +1,21 @@
+SocialHub
+Copyright 2026 Digvijay Parmar
+
+This product includes software developed by Digvijay Parmar and
+contributors (https://github.com/SavvyCoding/SocialHub).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file
+for the full license text.
+
+Third-party components are distributed under their own licenses, which
+are recorded in each package's package.json and reproduced in
+node_modules after installation. Notable dependencies include Next.js,
+React, tRPC, Prisma, Socket.IO, BullMQ, and Tailwind CSS (MIT), and the
+Sharp image library, which bundles libvips under the LGPL-3.0-or-later
+license as a dynamically linked component.
+
+Demo data shipped with this project (users, posts, books, films, places,
+and goals in apps/web/prisma/seed.ts) is fictional. Film and book titles
+are referenced for illustrative purposes only; poster and cover images
+are fetched at runtime from TMDB and Open Library under their respective
+terms and are not included in this repository.

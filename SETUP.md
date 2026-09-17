@@ -96,7 +96,6 @@ social-platform/
 │   ├── lib/             ← Utilities, validators, tRPC client
 │   ├── server/trpc/     ← tRPC routers + context
 │   └── prisma/          ← Schema + migrations + seed
-├── packages/types/      ← Shared TypeScript types
 └── docker-compose.yml   ← Local PostgreSQL + Redis
 ```
 

@@ -46,15 +46,12 @@ docker exec social_platform_worker sh -c "cd /app/apps/web && node_modules/.bin/
 docker compose -f deployment/docker-compose.deploy.yml up -d --build web worker
 ```
 
-`Test/run-tests.sh` and `ProductTraining/run.sh` build separate Docker images that run Playwright against `social_platform_web` on that network (E2E with video, and a narrated product training video respectively). `scripts/daily-pipeline.*` runs Claude Code autonomously against `scripts/daily-pipeline-prompt.txt`; `FEATURE_LIST.md` tracks its output.
-
 ## Architecture
 
-**Monorepo** using pnpm workspaces + Turborepo with three packages:
+**Monorepo** using pnpm workspaces + Turborepo with two packages:
 
 - **`apps/web`** — Next.js 15 (App Router, React 19) — the main application, plus the BullMQ worker entrypoint
 - **`apps/socket-server`** — Express + Socket.IO server for real-time notifications/messaging
-- **`packages/types`** — Shared TypeScript types
 
 **Infrastructure** (via docker-compose): PostgreSQL 16 with pgvector + PGBouncer + Redis 7.
 

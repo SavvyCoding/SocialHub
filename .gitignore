@@ -32,8 +32,16 @@ pnpm-debug.log*
 # Testing
 coverage
 .nyc_output
-Test/results/
-ProductTraining/output/
 playwright-report/
 test-results/
 .claude/
+
+# Local tooling kept out of the public repo (demo/test video pipelines,
+# Claude Code automation and its output, LinkedIn assets, pipeline logs)
+training/
+ProductTraining/
+Test/
+linkedin/
+scripts/
+FEATURE_LIST.md
+logs/

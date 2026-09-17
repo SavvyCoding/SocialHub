@@ -1,6 +1,11 @@
 {
   "name": "social-platform",
   "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SavvyCoding/SocialHub.git"
+  },
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "turbo dev",
