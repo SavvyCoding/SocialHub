@@ -12,7 +12,7 @@ test.describe("Authentication", () => {
   test("register a new user", async ({ page }) => {
     await page.goto("/register")
 
-    await page.getByLabel(/^name$/i).fill(TEST_USER.name)
+    await page.getByLabel(/^full name$/i).fill(TEST_USER.name)
     await page.getByLabel(/^username$/i).fill(TEST_USER.username)
     await page.getByLabel(/^email$/i).fill(TEST_USER.email)
     await page.getByLabel(/^password$/i).fill(TEST_USER.password)
