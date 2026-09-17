@@ -128,6 +128,9 @@ export function BookShelf({ userId, isOwner }: BookShelfProps) {
           )}
         </div>
       )}
+      <p className="pt-2 text-[11px] text-muted-foreground">
+        Book data and covers provided by Open Library.
+      </p>
     </div>
   )
 }

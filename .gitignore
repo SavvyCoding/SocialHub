@@ -45,3 +45,6 @@ linkedin/
 scripts/
 FEATURE_LIST.md
 logs/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

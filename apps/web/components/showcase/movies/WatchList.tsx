@@ -151,6 +151,9 @@ export function WatchList({ userId, isOwner }: WatchListProps) {
           )}
         </div>
       )}
+      <p className="pt-2 text-[11px] text-muted-foreground">
+        This product uses the TMDB API but is not endorsed or certified by TMDB.
+      </p>
     </div>
   )
 }

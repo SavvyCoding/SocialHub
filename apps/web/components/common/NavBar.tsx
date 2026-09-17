@@ -101,11 +101,11 @@ export function NavBar() {
             {session && (
               <button
                 onClick={() => setComposing(true)}
-                title="New Tweet"
+                title="New post"
                 className="ml-2 flex items-center gap-2 rounded-full bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md hover:shadow-lg hover:brightness-110 transition-all active:scale-95"
               >
                 <Feather className="h-4 w-4" />
-                <span>Tweet</span>
+                <span>Post</span>
               </button>
             )}
 
